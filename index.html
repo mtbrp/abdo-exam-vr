@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Abdominal Exam VR - Clinical Simulator Engine</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <style>
+        :root {
+            --glass-dark: rgba(15, 23, 42, 0.88);
+            --glass-border: rgba(255, 255, 255, 0.15);
+            --glass-blur: blur(24px) saturate(180%);
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", sans-serif;
+            user-select: none;
+            background-color: #030508;
+            color: #f8fafc;
+            touch-action: none;
+        }
+
+        canvas { display: block; width: 100vw; height: 100vh; }
+
+        .vision-pill {
+            background: rgba(30, 41, 59, 0.85);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+        }
+
+        .vision-card {
+            background: var(--glass-dark);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .segmented-item {
+            border-radius: 9999px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .segmented-item.active {
+            background: #ffffff;
+            color: #0f172a;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-hover { transition: all 0.2s ease; cursor: pointer; }
+        .btn-hover:hover { filter: brightness(1.2); transform: translateY(-1px); }
+        .btn-hover:active { transform: scale(0.97); }
+
+        input[type=range] { -webkit-appearance: none; background: transparent; }
+        input[type=range]:focus { outline: none; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; background: rgba(255, 255, 255, 0.2); border-radius: 2px; }
+        input[type=range]::-webkit-slider-thumb { height: 16px; width: 16px; border-radius: 50%; background: #ffffff; -webkit-appearance: none; margin-top: -6px; }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container" class="absolute inset-0 w-full h-full z-0"></div>
+
+    <!-- POCUS Floating Ultrasound Viewport -->
+    <div id="pocus-viewport" class="hidden absolute top-20 right-4 md:right-8 z-30 w-72 max-w-[85vw] vision-card p-3 rounded-2xl border border-cyan-500/40 shadow-2xl">
+        <div class="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
+            <span class="text-[11px] font-bold text-cyan-400 flex items-center gap-1.5"><i class="fa-solid fa-wave-square"></i> POCUS Ultrasound</span>
+            <span class="text-[9px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded">Live B-Mode</span>
+        </div>
+        <canvas id="pocus-canvas" width="260" height="160" class="w-full h-32 bg-black rounded-xl border border-slate-800"></canvas>
+        <p id="pocus-finding" class="text-[10px] text-slate-300 mt-2 italic text-center">Tap on abdomen to place probe...</p>
+    </div>
+
+    <!-- Top Floating Header -->
+    <header class="relative z-10 flex items-center justify-between px-3 md:px-8 py-3 pointer-events-none gap-2">
+        <div class="pointer-events-auto vision-pill px-3 py-1.5 md:px-5 md:py-2.5 rounded-full flex items-center gap-2.5 flex-shrink-0">
+            <div class="w-7 h-7 md:w-8 md:h-8 rounded-full bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-blue-400">
+                <i class="fa-solid fa-user-doctor text-xs md:text-sm"></i>
+            </div>
+            <div>
+                <h1 class="text-[11px] md:text-xs font-semibold tracking-wide text-white">AbdoExam VR</h1>
+                <p class="text-[9px] md:text-[10px] text-emerald-400 font-medium">Nursing OSCE Engine</p>
+            </div>
+        </div>
+
+        <!-- Tool Mode Selector -->
+        <div class="pointer-events-auto vision-pill p-1 md:p-1.5 rounded-full flex items-center gap-1 overflow-x-auto max-w-[50vw] md:max-w-none whitespace-nowrap">
+            <button id="tool-history" onclick="setToolMode('history')" class="segmented-item active px-3 py-1 text-[11px] font-semibold"><i class="fa-solid fa-comments mr-1"></i> Consult</button>
+            <button id="tool-inspect" onclick="setToolMode('inspect')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300"><i class="fa-solid fa-eye mr-1"></i> Inspect</button>
+            <button id="tool-auscultate" onclick="setToolMode('auscultate')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300"><i class="fa-solid fa-stethoscope mr-1"></i> Auscultate</button>
+            <button id="tool-palpate" onclick="setToolMode('palpate')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300"><i class="fa-solid fa-hand-dots mr-1"></i> Palpate</button>
+            <button id="tool-percuss" onclick="setToolMode('percuss')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300"><i class="fa-solid fa-drum mr-1"></i> Percuss</button>
+            <button id="tool-pocus" onclick="setToolMode('pocus')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-cyan-300"><i class="fa-solid fa-wave-square mr-1"></i> POCUS</button>
+        </div>
+
+        <!-- Actions -->
+        <div class="pointer-events-auto flex items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+            <button onclick="recenterCamera()" class="vision-pill btn-hover px-3 py-1.5 rounded-full text-[11px] font-semibold text-slate-200 border border-white/20">
+                <i class="fa-solid fa-arrows-to-eye text-blue-400 mr-1"></i> Center
+            </button>
+            <button onclick="toggleScorecard()" class="vision-pill btn-hover px-3 py-1.5 rounded-full text-[11px] font-semibold text-amber-300 border border-amber-500/30">
+                <i class="fa-solid fa-clipboard-check mr-1"></i> OSCE
+            </button>
+            <div id="vr-button-container" class="pointer-events-auto"></div>
+        </div>
+    </header>
+
+    <!-- Clinical Cases & Language Selector -->
+    <div class="relative z-10 flex justify-center mt-0.5 pointer-events-none">
+        <div class="pointer-events-auto vision-pill px-3 py-1.5 rounded-full flex items-center gap-2 md:gap-3 overflow-x-auto max-w-[96vw] whitespace-nowrap">
+            <span class="text-[10px] text-slate-400 font-semibold uppercase">Cases:</span>
+            <button id="case-normal" onclick="switchCase('normal')" class="btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500 text-slate-950">Normal</button>
+            <button id="case-obstruction" onclick="switchCase('obstruction')" class="btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-amber-300">Obstruction</button>
+            <button id="case-gastroenteritis" onclick="switchCase('gastroenteritis')" class="btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-cyan-300">Gastroenteritis</button>
+            <button id="case-appendicitis" onclick="switchCase('appendicitis')" class="btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-rose-400">Appendicitis</button>
+            <button id="case-ileus" onclick="switchCase('ileus')" class="btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-purple-300">Paralytic Ileus</button>
+            
+            <span class="text-white/20">|</span>
+
+            <span class="text-[10px] text-blue-400 font-semibold uppercase">Lang:</span>
+            <button id="lang-en" onclick="setLanguage('en')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500 text-white">EN</button>
+            <button id="lang-tl" onclick="setLanguage('tl')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300">TL (Tagalog)</button>
+
+            <span class="text-white/20">|</span>
+
+            <span class="text-[10px] text-amber-300 font-semibold uppercase">Guide:</span>
+            <button id="btn-grid-off" onclick="setAbdominalGridMode('off')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/20 text-white">OFF</button>
+            <button id="btn-grid-4q" onclick="setAbdominalGridMode('4q')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300">4 Quadrants</button>
+            <button id="btn-grid-9r" onclick="setAbdominalGridMode('9r')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300">9 Regions</button>
+        </div>
+    </div>
+
+    <!-- Main Workspace Layout -->
+    <main class="relative z-10 flex-1 flex flex-col md:flex-row justify-between p-3 md:p-6 pointer-events-none overflow-y-auto md:overflow-hidden gap-3">
+        
+        <!-- Left Panel: Consultation Log & Maneuvers -->
+        <div id="panel-consult" class="w-full sm:w-[360px] md:w-[410px] max-w-[94vw] vision-card rounded-3xl p-4 md:p-5 flex flex-col justify-between pointer-events-auto overflow-y-auto max-h-[calc(100vh-160px)] space-y-3">
+            <div class="space-y-3">
+                <div class="flex items-center justify-between border-b border-white/10 pb-2">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2"><i class="fa-solid fa-comments text-blue-400"></i> History Dialogue</h2>
+                    <span id="patient-name-tag" class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">Patient: Sheena</span>
+                </div>
+
+                <div id="chat-history-log" class="space-y-2 max-h-[160px] md:max-h-[200px] overflow-y-auto p-2.5 rounded-2xl bg-black/40 border border-white/10 text-xs"></div>
+
+                <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Ask Patient Question:</span>
+                <div id="question-button-list" class="space-y-1"></div>
+
+                <span class="text-[10px] font-semibold text-purple-400 uppercase tracking-wider block pt-2 border-t border-white/10">Special Maneuvers:</span>
+                <div class="grid grid-cols-2 gap-1 text-xs">
+                    <button onclick="performSpecialSign('mcburney')" class="btn-hover p-1.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">McBurney's Point</button>
+                    <button onclick="performSpecialSign('blumberg')" class="btn-hover p-1.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">Blumberg's Rebound</button>
+                    <button onclick="performSpecialSign('rovsing')" class="btn-hover p-1.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">Rovsing's Sign</button>
+                    <button onclick="performSpecialSign('psoas')" class="btn-hover p-1.5 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 text-left font-medium">Psoas / Obturator</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Left Morph Panel (Inspect Mode) -->
+        <div id="panel-morphs" class="hidden w-full sm:w-80 max-w-[94vw] vision-card rounded-3xl p-4 flex flex-col space-y-3 pointer-events-auto overflow-y-auto max-h-[calc(100vh-160px)]">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 border-b border-white/10 pb-2"><i class="fa-solid fa-sliders text-blue-400 mr-1.5"></i> Inspection Findings</h2>
+            <div id="inspection-details" class="text-xs text-slate-300 leading-relaxed space-y-2 bg-white/5 p-3 rounded-2xl border border-white/10"></div>
+            <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-200">X-Ray Organ Layer</span>
+                <button id="btn-xray-toggle" onclick="toggleXRayLayer()" class="btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-white/20 bg-white/5 text-slate-300">OFF</button>
+            </div>
+        </div>
+
+        <!-- Right Panel: Clinical Monitor -->
+        <div class="w-full sm:w-80 max-w-[94vw] vision-card rounded-3xl p-4 md:p-5 flex flex-col justify-between pointer-events-auto max-h-[calc(100vh-160px)] space-y-3">
+            <div class="space-y-3">
+                <div class="flex items-center justify-between border-b border-white/10 pb-2">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2"><i class="fa-solid fa-heart-pulse text-emerald-400"></i> Clinical Findings</h2>
+                    <span id="status-badge" class="px-2 py-0.5 text-[9px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">NORMAL</span>
+                </div>
+
+                <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+                    <span class="text-[10px] text-slate-400 uppercase font-semibold">Auscultation Sound:</span>
+                    <p id="auscultation-sound-desc" class="text-xs font-mono text-cyan-300">Hover stethoscope over abdomen...</p>
+                </div>
+
+                <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+                    <span class="text-[10px] text-slate-400 uppercase font-semibold">Percussion Note:</span>
+                    <p id="percussion-desc" class="text-xs font-mono text-amber-300">Tap quadrant to percuss...</p>
+                </div>
+
+                <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300 font-medium">Palpation Depth:</span>
+                        <span id="val-palp-depth" class="text-blue-400 font-mono font-bold">Light (1 cm)</span>
+                    </div>
+                    <input type="range" id="slider-palp-depth" min="1" max="5" value="1" step="1" oninput="updatePalpationDepth()" class="w-full">
+                </div>
+
+                <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-400">Facial Pain Grimace:</span>
+                        <span id="grimace-level" class="font-bold text-emerald-400">0% (Calm)</span>
+                    </div>
+                    <div class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+                        <div id="pain-bar" class="bg-emerald-400 h-full w-0 transition-all duration-300"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- OSCE Scorecard Modal -->
+    <div id="osce-modal" class="hidden absolute inset-0 z-50 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 pointer-events-auto">
+        <div class="w-full max-w-lg vision-card rounded-3xl p-5 border border-amber-500/40 space-y-4">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                <h2 class="text-sm font-bold text-amber-300 flex items-center gap-2"><i class="fa-solid fa-award"></i> OSCE Assessment Scorecard</h2>
+                <button onclick="toggleScorecard()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div id="osce-checklist" class="space-y-2 text-xs"></div>
+            <div class="pt-3 border-t border-white/10 flex justify-between items-center">
+                <span class="text-xs text-slate-400">Total OSCE Score:</span>
+                <span id="osce-score-val" class="text-lg font-mono font-bold text-emerald-400">0 / 100</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ENGINE SCRIPT -->
+    <script>
+        let scene, camera, renderer, orbitControls;
+        let patientGroup, torsoMesh, torsoGeo, baseTorsoPositions;
+        let headMesh, eyebrowLeft, eyebrowRight;
+        let ruqScarMesh, midlineScarMesh, organGroup, gridGroup4Q, gridGroup9R;
+        let stethoscopeMesh, cursorMarker;
+        let audioCtx = null, synthOsc = null;
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        let currentCase = 'normal';
+        let currentLanguage = 'en';
+        let currentTool = 'history';
+        let palpationDepth = 1;
+        let xrayActive = false;
+
+        const osceTracker = { history: false, inspected: false, auscultated: false, percussed: false, lightPalpated: false, deepPalpated: false, specialManeuvers: false };
+
+        const caseDatabase = {
+            normal: {
+                name: "Sheena (Normal Baseline)",
+                status: "STABLE / NORMAL",
+                inspectionText: "Contour: Flat/rounded, symmetrical. Skin intact & uniform. No visible scars or distention.",
+                scarType: 'none',
+                postureFlexed: false,
+                distension: 0,
+                auscultation: { desc: "Soft, intermittent gurgles (5–30/min)", rate: 15, pitch: 400, type: 'normal' },
+                percussion: { RUQ: "Dullness over liver; tympany rest", LUQ: "Predominantly tympany", RLQ: "Tympany", LLQ: "Tympany" },
+                palpationPain: { RUQ: 0, LUQ: 0, RLQ: 0, LLQ: 0 }
+            },
+            obstruction: {
+                name: "Pau (Acute Bowel Obstruction)",
+                status: "ACUTE OBSTRUCTION",
+                inspectionText: "Swollen, asymmetrical distention over center & right side. Tight, shiny skin. Cholecystectomy scar under right ribs. Visible peristalsis waves.",
+                scarType: 'ruq',
+                postureFlexed: false,
+                distension: 0.8,
+                auscultation: { desc: "Early: High-pitched metallic tinkling/clinking (>30/min). Late: Silent abdomen.", rate: 35, pitch: 850, type: 'tinkling' },
+                percussion: { RUQ: "Hyperresonance over swollen gut; quiet liver dullness", LUQ: "Tympany", RLQ: "Tympany with pooled fluid dullness", LLQ: "Hyperresonance" },
+                palpationPain: { RUQ: 80, LUQ: 55, RLQ: 75, LLQ: 60 }
+            },
+            gastroenteritis: {
+                name: "Emem (Acute Gastroenteritis)",
+                status: "GASTROENTERITIS",
+                inspectionText: "Flat/rounded contour, symmetrical. Mild distention with active gut movements. Skin dry/pale. No scars.",
+                scarType: 'none',
+                postureFlexed: false,
+                distension: 0.3,
+                auscultation: { desc: "Hyperactive borborygmi, rushing water sounds (>30/min)", rate: 40, pitch: 500, type: 'rushing' },
+                percussion: { RUQ: "Predominantly tympany; liver dullness", LUQ: "Tympany", RLQ: "Hyperresonant tympany", LLQ: "Hyperresonant tympany" },
+                palpationPain: { RUQ: 35, LUQ: 35, RLQ: 35, LLQ: 35 }
+            },
+            appendicitis: {
+                name: "Meanne (Acute Appendicitis)",
+                status: "ACUTE APPENDICITIS",
+                inspectionText: "Patient lies motionless with knees flexed to reduce peritoneal friction. Respiration abdominal guarding.",
+                scarType: 'none',
+                postureFlexed: true,
+                distension: 0.15,
+                auscultation: { desc: "Hypoactive bowel sounds (1–3 dull clicks/min)", rate: 2, pitch: 250, type: 'hypoactive' },
+                percussion: { RUQ: "Normal tympany", LUQ: "Normal tympany", RLQ: "Marked McBurney's point tenderness", LLQ: "Normal tympany" },
+                palpationPain: { RUQ: 20, LUQ: 20, RLQ: 85, LLQ: 30 }
+            },
+            ileus: {
+                name: "Jannah (Paralytic Ileus)",
+                status: "PARALYTIC ILEUS",
+                inspectionText: "Generalized symmetrical bloated stomach. Midline laparotomy surgical scar. Absent visible peristalsis.",
+                scarType: 'midline',
+                postureFlexed: false,
+                distension: 0.75,
+                auscultation: { desc: "Silent abdomen (0 sounds heard over 3–5 minutes)", rate: 0, pitch: 0, type: 'silent' },
+                percussion: { RUQ: "Tympany", LUQ: "Tympany", RLQ: "Tympany", LLQ: "Tympany" },
+                palpationPain: { RUQ: 50, LUQ: 50, RLQ: 50, LLQ: 50 }
+            }
+        };
+
+        const dialogueDatabase = {
+            en: {
+                normal: [
+                    { q: "How are you feeling today?", a: "I'm feeling well today, thank you for asking." },
+                    { q: "Any abdominal pain or discomfort recently?", a: "No, I haven't experienced any abdominal pain or discomfort." },
+                    { q: "How are your bowel movements?", a: "I have regular bowel movements, including this morning." },
+                    { q: "Any nausea or vomiting?", a: "No, I haven't experienced any." }
+                ],
+                obstruction: [
+                    { q: "How are you feeling today?", a: "I'm feeling very sick with severe 8/10 belly pain, vomiting, and extreme bloating." },
+                    { q: "Can you describe the pain?", a: "Severe cramping around my belly button that squeezes tight for 2-3 minutes in waves." },
+                    { q: "Have you been throwing up?", a: "Yes, multiple episodes of dark greenish-yellow fluid over the last 12 hours." },
+                    { q: "When was your last stool or gas?", a: "No gas or stool passed at all since last night." }
+                ],
+                gastroenteritis: [
+                    { q: "What brought you in today?", a: "Severe abdominal pain, weakness, continuous diarrhea, and vomiting since last night." },
+                    { q: "What does your stool look like?", a: "Completely watery, yellow to light brown. Started after street food." },
+                    { q: "Does anything make the pain worse?", a: "Eating solid food makes me throw up immediately." }
+                ],
+                appendicitis: [
+                    { q: "Where did the pain start?", a: "It started around my belly button, but moved down to my lower right belly and got much sharper." },
+                    { q: "Does anything make it worse?", a: "Coughing, walking, or sudden movement hurts tremendously. Lying still with knees bent helps." },
+                    { q: "Did meds help?", a: "I took paracetamol, but it didn't help at all." }
+                ],
+                ileus: [
+                    { q: "How are you feeling right now?", a: "Awful—my stomach is extremely bloated, heavy, and uncomfortable after surgery." },
+                    { q: "Can you pass gas or stool?", a: "No, nothing brings relief since I can't pass gas or stool." },
+                    { q: "Are you vomiting?", a: "Yes, throwing up greenish-yellow fluid continuously." }
+                ]
+            },
+            tl: {
+                normal: [
+                    { q: "Kumusta po ang pakiramdam ninyo ngayon?", a: "Mabuti naman po ang pakiramdam ko ngayon. Salamat po." },
+                    { q: "Nakaranas po ba kayo ng pananakit sa tiyan?", a: "Hindi po. Wala naman po akong nararanasang pananakit." },
+                    { q: "Kumusta naman po ang inyong pagdumi?", a: "Opo, regular naman po ang aking pagdumi." }
+                ],
+                obstruction: [
+                    { q: "Kumusta po ang pakiramdam ninyo?", a: "Napakasama po. Sobrang sakit ng tiyan (8/10) at napakalaki ng pamamaga." },
+                    { q: "Paano po ang sakit?", a: "Matalas na pamimilipit sa paligid ng pusod na umiipit nang 2-3 minuto." }
+                ],
+                gastroenteritis: [
+                    { q: "Bakit po kayo nagpapakonsulta?", a: "Sobrang sakit po ng tiyan at nanghihina ako dahil sa pagtatatae at pagsusuka matapos kumain ng street food." },
+                    { q: "Ano ang itsura ng dumi?", a: "Purong tubig na kulay dilaw-kayumanggi." }
+                ],
+                appendicitis: [
+                    { q: "Saan nagsimula ang sakit?", a: "Nagsimula sa paligid ng pusod, tapos lumipat sa ibabang kanang bahagi ng tiyan at naging napakatulis." },
+                    { q: "Ano ang nakakapagpalala?", a: "Pag-ubo, paglakad, o alog. Mas kumakalma kapag nakatupi ang tuhod." }
+                ],
+                ileus: [
+                    { q: "Kamusta po ang pakiramdam niyo?", a: "Napakasama po—napakalaki at napakabigat ng tiyan ko pagkatapos ng opera." },
+                    { q: "Nakakapag-utot po ba kayo?", a: "Hindi po ako makautot o makadumi kaya walang kaginhawahan." }
+                ]
+            }
+        };
+
+        window.onload = function() {
+            try {
+                initScene();
+                initVR();
+                createPatientModel();
+                createAbdominalGridOverlays();
+                createInternalOrgans();
+                createTools();
+                setupEventListeners();
+                switchCase('normal');
+                recenterCamera();
+                animate();
+            } catch (err) {
+                console.error("Initialization Error:", err);
+            }
+        };
+
+        function initScene() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+
+            const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            keyLight.position.set(-2, 4, 3);
+            keyLight.castShadow = true;
+            scene.add(keyLight);
+
+            const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.4);
+            fillLight.position.set(2, 2, -2);
+            scene.add(fillLight);
+
+            // Examination Bed
+            const bed = new THREE.Mesh(
+                new THREE.BoxGeometry(1.4, 0.2, 3.2),
+                new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 })
+            );
+            bed.position.set(0, -0.1, 0);
+            scene.add(bed);
+
+            // Interactive Cursor Marker
+            cursorMarker = new THREE.Mesh(
+                new THREE.RingGeometry(0.02, 0.04, 32),
+                new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
+            );
+            cursorMarker.rotateX(-Math.PI / 2);
+            cursorMarker.visible = false;
+            scene.add(cursorMarker);
+        }
+
+        function initVR() {
+            // Safely initialize WebXR VRButton if supported
+            try {
+                if (navigator.xr && typeof VRButton !== 'undefined') {
+                    renderer.xr.enabled = true;
+                    document.getElementById('vr-button-container').appendChild(VRButton.createButton(renderer));
+                }
+            } catch (e) {
+                console.warn("VR WebXR capability not active or VRButton module unavailable:", e);
+            }
+        }
+
+        function createPatientModel() {
+            patientGroup = new THREE.Group();
+
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xe0a98b, roughness: 0.6 });
+
+            // Abdominal Torso Geometry
+            torsoGeo = new THREE.BoxGeometry(0.72, 0.35, 1.2, 48, 24, 48);
+            baseTorsoPositions = new Float32Array(torsoGeo.attributes.position.array);
+
+            torsoMesh = new THREE.Mesh(torsoGeo, skinMat);
+            torsoMesh.position.set(0, 0.18, 0);
+            patientGroup.add(torsoMesh);
+
+            // Surgical Scars
+            const scarMat = new THREE.MeshBasicMaterial({ color: 0x991b1b });
+            ruqScarMesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.01, 0.02), scarMat);
+            ruqScarMesh.position.set(-0.18, 0.36, 0.2);
+            ruqScarMesh.rotation.y = -0.3;
+            ruqScarMesh.visible = false;
+            patientGroup.add(ruqScarMesh);
+
+            midlineScarMesh = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.01, 0.4), scarMat);
+            midlineScarMesh.position.set(0, 0.36, 0);
+            midlineScarMesh.visible = false;
+            patientGroup.add(midlineScarMesh);
+
+            // Patient Head
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 32, 32), skinMat);
+            head.position.set(0, 0.28, 0.85);
+            patientGroup.add(head);
+
+            eyebrowLeft = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.01, 0.01), new THREE.MeshBasicMaterial({ color: 0x1c1917 }));
+            eyebrowLeft.position.set(-0.065, 0.36, 0.98);
+            eyebrowRight = eyebrowLeft.clone();
+            eyebrowRight.position.x = 0.065;
+            patientGroup.add(eyebrowLeft, eyebrowRight);
+
+            scene.add(patientGroup);
+        }
+
+        function createAbdominalGridOverlays() {
+            gridGroup4Q = new THREE.Group();
+            gridGroup4Q.position.set(0, 0.36, 0);
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+            gridGroup4Q.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0.5), new THREE.Vector3(0,0,-0.5)]), lineMat));
+            gridGroup4Q.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.3,0,0), new THREE.Vector3(0.3,0,0)]), lineMat));
+            gridGroup4Q.visible = false;
+            patientGroup.add(gridGroup4Q);
+
+            gridGroup9R = new THREE.Group();
+            gridGroup9R.position.set(0, 0.36, 0);
+            const lineMat9 = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2 });
+            gridGroup9R.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.12,0,0.5), new THREE.Vector3(-0.12,0,-0.5)]), lineMat9));
+            gridGroup9R.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0.12,0,0.5), new THREE.Vector3(0.12,0,-0.5)]), lineMat9));
+            gridGroup9R.visible = false;
+            patientGroup.add(gridGroup9R);
+        }
+
+        function createInternalOrgans() {
+            organGroup = new THREE.Group();
+            organGroup.position.set(0, 0.18, 0);
+            const liver = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), new THREE.MeshStandardMaterial({ color: 0x881337, transparent: true, opacity: 0.85 }));
+            liver.position.set(-0.14, 0.02, 0.15);
+            organGroup.add(liver);
+            organGroup.visible = false;
+            patientGroup.add(organGroup);
+        }
+
+        function createTools() {
+            stethoscopeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 32), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8 }));
+            stethoscopeMesh.visible = false;
+            scene.add(stethoscopeMesh);
+        }
+
+        function switchCase(cKey) {
+            currentCase = cKey;
+            const cData = caseDatabase[cKey];
+
+            ['normal', 'obstruction', 'gastroenteritis', 'appendicitis', 'ileus'].forEach(k => {
+                const b = document.getElementById(`case-${k}`);
+                if (b) b.className = (k === cKey) ? 'btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500 text-slate-950' : 'btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-slate-300';
+            });
+
+            document.getElementById('patient-name-tag').innerText = `Patient: ${cData.name}`;
+            document.getElementById('status-badge').innerText = cData.status;
+            document.getElementById('inspection-details').innerText = cData.inspectionText;
+
+            ruqScarMesh.visible = cData.scarType === 'ruq';
+            midlineScarMesh.visible = cData.scarType === 'midline';
+
+            patientGroup.rotation.x = cData.postureFlexed ? 0.15 : 0;
+
+            const posAttr = torsoGeo.attributes.position;
+            for (let i = 0; i < posAttr.count; i++) {
+                const yBase = baseTorsoPositions[i * 3 + 1];
+                const zBase = baseTorsoPositions[i * 3 + 2];
+                if (zBase >= -0.35 && zBase <= 0.2 && yBase > 0) {
+                    posAttr.setY(i, yBase + cData.distension * 0.18);
+                }
+            }
+            posAttr.needsUpdate = true;
+
+            renderDialogueList();
+        }
+
+        function setLanguage(lang) {
+            currentLanguage = lang;
+            document.getElementById('lang-en').className = lang === 'en' ? 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500 text-white' : 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300';
+            document.getElementById('lang-tl').className = lang === 'tl' ? 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500 text-white' : 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300';
+            renderDialogueList();
+        }
+
+        function renderDialogueList() {
+            const list = dialogueDatabase[currentLanguage][currentCase] || dialogueDatabase['en'][currentCase];
+            const btnContainer = document.getElementById('question-button-list');
+            btnContainer.innerHTML = '';
+
+            list.forEach((item, idx) => {
+                const btn = document.createElement('button');
+                btn.className = "btn-hover w-full text-left p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-[11px] text-slate-200 flex items-center justify-between";
+                btn.innerHTML = `<span>${idx + 1}. "${item.q}"</span><i class="fa-solid fa-play text-blue-400 text-[10px]"></i>`;
+                btn.onclick = () => askQuestion(item.q, item.a);
+                btnContainer.appendChild(btn);
+            });
+
+            document.getElementById('chat-history-log').innerHTML = `<p class="text-[10px] text-slate-400 italic">Tap a question above to start history taking...</p>`;
+        }
+
+        function askQuestion(q, a) {
+            osceTracker.history = true;
+            const log = document.getElementById('chat-history-log');
+            log.innerHTML += `
+                <div class="my-1 text-blue-300 text-[11px]"><b>Nurse:</b> "${q}"</div>
+                <div class="my-1 text-emerald-300 text-[11px]"><b>Patient:</b> "${a}"</div>
+            `;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function setToolMode(mode) {
+            currentTool = mode;
+            ['history', 'inspect', 'auscultate', 'palpate', 'percuss', 'pocus'].forEach(m => {
+                const btn = document.getElementById(`tool-${m}`);
+                if (btn) btn.className = m === mode ? 'segmented-item active px-3 py-1 text-[11px] font-semibold' : 'segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300';
+            });
+
+            document.getElementById('panel-consult').classList.toggle('hidden', mode !== 'history');
+            document.getElementById('panel-morphs').classList.toggle('hidden', mode !== 'inspect');
+            document.getElementById('pocus-viewport').classList.toggle('hidden', mode !== 'pocus');
+
+            if (mode === 'inspect') osceTracker.inspected = true;
+            if (mode === 'auscultate') osceTracker.auscultated = true;
+            if (mode === 'percuss') osceTracker.percussed = true;
+        }
+
+        function updatePalpationDepth() {
+            palpationDepth = parseInt(document.getElementById('slider-palp-depth').value);
+            const labels = ['', 'Light (1 cm)', 'Moderate (2 cm)', 'Deep (3 cm)', 'Deep (4 cm)', 'Deep Mass (5 cm)'];
+            document.getElementById('val-palp-depth').innerText = labels[palpationDepth];
+        }
+
+        function triggerAudioAuscultation() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (synthOsc) synthOsc.stop();
+
+            const cData = caseDatabase[currentCase].auscultation;
+            document.getElementById('auscultation-sound-desc').innerText = cData.desc;
+
+            if (cData.rate === 0) return;
+
+            synthOsc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            synthOsc.type = cData.type === 'tinkling' ? 'sine' : 'triangle';
+            synthOsc.frequency.setValueAtTime(cData.pitch, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            synthOsc.connect(gain);
+            gain.connect(audioCtx.destination);
+            synthOsc.start();
+            synthOsc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        function setupEventListeners() {
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            window.addEventListener('pointermove', (e) => {
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(torsoMesh);
+
+                if (intersects.length > 0) {
+                    const point = intersects[0].point;
+                    cursorMarker.position.copy(point);
+                    cursorMarker.position.y += 0.02;
+                    cursorMarker.visible = true;
+
+                    if (currentTool === 'auscultate') {
+                        stethoscopeMesh.visible = true;
+                        stethoscopeMesh.position.copy(point);
+                        triggerAudioAuscultation();
+                    } else {
+                        stethoscopeMesh.visible = false;
+                    }
+                } else {
+                    cursorMarker.visible = false;
+                    stethoscopeMesh.visible = false;
+                }
+            });
+
+            window.addEventListener('click', (e) => {
+                if (e.target.closest('.vision-card') || e.target.closest('.vision-pill') || e.target.closest('header')) return;
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObject(torsoMesh);
+
+                if (intersects.length > 0) {
+                    const hitZ = intersects[0].point.z;
+                    const hitX = intersects[0].point.x;
+                    let quad = 'RUQ';
+                    if (hitX < 0 && hitZ > 0) quad = 'RUQ';
+                    else if (hitX >= 0 && hitZ > 0) quad = 'LUQ';
+                    else if (hitX < 0 && hitZ <= 0) quad = 'RLQ';
+                    else quad = 'LLQ';
+
+                    if (currentTool === 'percuss') {
+                        document.getElementById('percussion-desc').innerText = `${quad}: ${caseDatabase[currentCase].percussion[quad]}`;
+                    } else if (currentTool === 'palpate') {
+                        if (palpationDepth <= 2) osceTracker.lightPalpated = true;
+                        else osceTracker.deepPalpated = true;
+
+                        let painVal = caseDatabase[currentCase].palpationPain[quad];
+                        if (palpationDepth >= 3) painVal = Math.min(100, painVal + 20);
+
+                        eyebrowLeft.rotation.z = (painVal / 100) * 0.5;
+                        eyebrowRight.rotation.z = -(painVal / 100) * 0.5;
+
+                        document.getElementById('grimace-level').innerText = `${painVal}% Pain`;
+                        document.getElementById('pain-bar').style.width = `${painVal}%`;
+
+                        setTimeout(() => {
+                            eyebrowLeft.rotation.z = 0; eyebrowRight.rotation.z = 0;
+                            document.getElementById('grimace-level').innerText = '0% (Calm)';
+                            document.getElementById('pain-bar').style.width = '0%';
+                        }, 1500);
+                    }
+                }
+            });
+        }
+
+        function performSpecialSign(sign) {
+            osceTracker.specialManeuvers = true;
+            if (sign === 'mcburney') alert("McBurney's Point Test: Palpation 2/3 distance from ASIS to umbilicus.");
+            if (sign === 'blumberg') alert("Blumberg's Rebound Sign: Sudden release of deep RLQ pressure causes sharp pain in Appendicitis.");
+            if (sign === 'rovsing') alert("Rovsing's Sign: Palpation in LLQ elicits pain in RLQ.");
+            if (sign === 'psoas') alert("Psoas / Obturator Sign: Passive hip extension / internal rotation causes RLQ pain.");
+        }
+
+        function setAbdominalGridMode(m) {
+            gridGroup4Q.visible = m === '4q';
+            gridGroup9R.visible = m === '9r';
+        }
+
+        function toggleXRayLayer() {
+            xrayActive = !xrayActive;
+            organGroup.visible = xrayActive;
+            document.getElementById('btn-xray-toggle').innerText = xrayActive ? 'ON' : 'OFF';
+        }
+
+        function recenterCamera() {
+            camera.position.set(0, 1.3, 1.8);
+            orbitControls.target.set(0, 0.2, 0.1);
+            orbitControls.update();
+        }
+
+        function toggleScorecard() {
+            const modal = document.getElementById('osce-modal');
+            modal.classList.toggle('hidden');
+            if (!modal.classList.contains('hidden')) {
+                let score = 0, html = '';
+                const items = [
+                    { k: 'history', l: '1. Patient History Dialogue Completed', p: 15 },
+                    { k: 'inspected', l: '2. Abdominal Inspection Performed', p: 15 },
+                    { k: 'auscultated', l: '3. Auscultation Before Palpation', p: 20 },
+                    { k: 'percussed', l: '4. Percussion Note Mapping', p: 15 },
+                    { k: 'lightPalpated', l: '5. Light Palpation (1-2 cm)', p: 15 },
+                    { k: 'deepPalpated', l: '6. Deep Palpation (4-5 cm)', p: 10 },
+                    { k: 'specialManeuvers', l: '7. Clinical Maneuvers (Rebound/Rovsing)', p: 10 }
+                ];
+
+                items.forEach(i => {
+                    const ok = osceTracker[i.k];
+                    if (ok) score += i.p;
+                    html += `<div class="flex justify-between p-2 rounded-xl bg-white/5"><span class="${ok?'text-emerald-400':'text-slate-400'}">${i.l}</span><span class="${ok?'text-emerald-400 font-bold':'text-slate-500'}">${ok?'+'+i.p:0} pts</span></div>`;
+                });
+                document.getElementById('osce-checklist').innerHTML = html;
+                document.getElementById('osce-score-val').innerText = `${score} / 100`;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            orbitControls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
