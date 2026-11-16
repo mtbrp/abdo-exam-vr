@@ -8,15 +8,16 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Three.js & OrbitControls -->
+    <!-- Three.js, OrbitControls & WebXR VRButton -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/VRButton.js"></script>
     
     <style>
         :root {
-            --glass-dark: rgba(15, 23, 42, 0.88);
-            --glass-border: rgba(255, 255, 255, 0.15);
-            --glass-blur: blur(24px) saturate(180%);
+            --glass-dark: rgba(15, 23, 42, 0.78);
+            --glass-border: rgba(255, 255, 255, 0.18);
+            --glass-blur: blur(22px) saturate(170%);
         }
 
         body {
@@ -24,7 +25,11 @@
             overflow: hidden;
             font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", sans-serif;
             user-select: none;
-            background-color: #030508;
+            background-color: #cbd5e1;
+            background-position: center center;
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
             color: #f8fafc;
             touch-action: none;
         }
@@ -32,19 +37,19 @@
         canvas { display: block; width: 100vw; height: 100vh; }
 
         .vision-pill {
-            background: rgba(30, 41, 59, 0.85);
+            background: rgba(15, 23, 42, 0.84);
             backdrop-filter: var(--glass-blur);
             -webkit-backdrop-filter: var(--glass-blur);
             border: 1px solid var(--glass-border);
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
         }
 
         .vision-card {
             background: var(--glass-dark);
             backdrop-filter: var(--glass-blur);
             -webkit-backdrop-filter: var(--glass-blur);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
         }
 
         .segmented-item {
@@ -65,20 +70,23 @@
 
         input[type=range] { -webkit-appearance: none; background: transparent; }
         input[type=range]:focus { outline: none; }
-        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; background: rgba(255, 255, 255, 0.2); border-radius: 2px; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; background: rgba(255, 255, 255, 0.25); border-radius: 2px; }
         input[type=range]::-webkit-slider-thumb { height: 16px; width: 16px; border-radius: 50%; background: #ffffff; -webkit-appearance: none; margin-top: -6px; }
 
         ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.25); border-radius: 4px; }
     </style>
 </head>
 <body class="flex flex-col h-screen overflow-hidden">
 
-    <!-- 3D Canvas Container -->
+    <!-- Hidden File Input for Loading Custom Ward Photo -->
+    <input type="file" id="ward-bg-input" accept="image/*" class="hidden" onchange="handleWardPhotoUpload(event)">
+
+    <!-- Transparent 3D Canvas Container over Hospital Ward Background -->
     <div id="canvas-container" class="absolute inset-0 w-full h-full z-0"></div>
 
     <!-- POCUS Floating Ultrasound Viewport -->
-    <div id="pocus-viewport" class="hidden absolute top-20 right-4 md:right-8 z-30 w-72 max-w-[85vw] vision-card p-3 rounded-2xl border border-cyan-500/40 shadow-2xl">
+    <div id="pocus-viewport" class="hidden absolute top-24 right-4 md:right-8 z-30 w-72 max-w-[85vw] vision-card p-3 rounded-2xl border border-cyan-500/40 shadow-2xl">
         <div class="flex items-center justify-between border-b border-white/10 pb-2 mb-2">
             <span class="text-[11px] font-bold text-cyan-400 flex items-center gap-1.5"><i class="fa-solid fa-wave-square"></i> POCUS Ultrasound</span>
             <span class="text-[9px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded">Live B-Mode</span>
@@ -100,17 +108,20 @@
         </div>
 
         <!-- Tool Mode Selector -->
-        <div class="pointer-events-auto vision-pill p-1 md:p-1.5 rounded-full flex items-center gap-1 overflow-x-auto max-w-[50vw] md:max-w-none whitespace-nowrap">
+        <div class="pointer-events-auto vision-pill p-1 md:p-1.5 rounded-full flex items-center gap-1 overflow-x-auto max-w-[46vw] md:max-w-none whitespace-nowrap">
             <button id="tool-history" onclick="setToolMode('history')" class="segmented-item active px-3 py-1 text-[11px] font-semibold"><i class="fa-solid fa-comments mr-1"></i> Consult</button>
-            <button id="tool-inspect" onclick="setToolMode('inspect')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300"><i class="fa-solid fa-eye mr-1"></i> Inspect</button>
-            <button id="tool-auscultate" onclick="setToolMode('auscultate')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300"><i class="fa-solid fa-stethoscope mr-1"></i> Auscultate</button>
-            <button id="tool-palpate" onclick="setToolMode('palpate')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300"><i class="fa-solid fa-hand-dots mr-1"></i> Palpate</button>
-            <button id="tool-percuss" onclick="setToolMode('percuss')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300"><i class="fa-solid fa-drum mr-1"></i> Percuss</button>
+            <button id="tool-inspect" onclick="setToolMode('inspect')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-200"><i class="fa-solid fa-eye mr-1"></i> Inspect</button>
+            <button id="tool-auscultate" onclick="setToolMode('auscultate')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-200"><i class="fa-solid fa-stethoscope mr-1"></i> Auscultate</button>
+            <button id="tool-palpate" onclick="setToolMode('palpate')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-200"><i class="fa-solid fa-hand-dots mr-1"></i> Palpate</button>
+            <button id="tool-percuss" onclick="setToolMode('percuss')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-slate-200"><i class="fa-solid fa-drum mr-1"></i> Percuss</button>
             <button id="tool-pocus" onclick="setToolMode('pocus')" class="segmented-item px-3 py-1 text-[11px] font-semibold text-cyan-300"><i class="fa-solid fa-wave-square mr-1"></i> POCUS</button>
         </div>
 
         <!-- Actions -->
         <div class="pointer-events-auto flex items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+            <button onclick="document.getElementById('ward-bg-input').click()" title="Load custom hospital ward photo" class="vision-pill btn-hover px-3 py-1.5 rounded-full text-[11px] font-semibold text-cyan-200 border border-cyan-400/30">
+                <i class="fa-solid fa-image text-cyan-400 mr-1"></i> Ward BG
+            </button>
             <button onclick="recenterCamera()" class="vision-pill btn-hover px-3 py-1.5 rounded-full text-[11px] font-semibold text-slate-200 border border-white/20">
                 <i class="fa-solid fa-arrows-to-eye text-blue-400 mr-1"></i> Center
             </button>
@@ -124,7 +135,7 @@
     <!-- Clinical Cases & Language Selector -->
     <div class="relative z-10 flex justify-center mt-0.5 pointer-events-none">
         <div class="pointer-events-auto vision-pill px-3 py-1.5 rounded-full flex items-center gap-2 md:gap-3 overflow-x-auto max-w-[96vw] whitespace-nowrap">
-            <span class="text-[10px] text-slate-400 font-semibold uppercase">Cases:</span>
+            <span class="text-[10px] text-slate-300 font-semibold uppercase">Cases:</span>
             <button id="case-normal" onclick="switchCase('normal')" class="btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500 text-slate-950">Normal</button>
             <button id="case-obstruction" onclick="switchCase('obstruction')" class="btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-amber-300">Obstruction</button>
             <button id="case-gastroenteritis" onclick="switchCase('gastroenteritis')" class="btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-cyan-300">Gastroenteritis</button>
@@ -135,14 +146,14 @@
 
             <span class="text-[10px] text-blue-400 font-semibold uppercase">Lang:</span>
             <button id="lang-en" onclick="setLanguage('en')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500 text-white">EN</button>
-            <button id="lang-tl" onclick="setLanguage('tl')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300">TL (Tagalog)</button>
+            <button id="lang-tl" onclick="setLanguage('tl')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-200">TL (Tagalog)</button>
 
             <span class="text-white/20">|</span>
 
             <span class="text-[10px] text-amber-300 font-semibold uppercase">Guide:</span>
             <button id="btn-grid-off" onclick="setAbdominalGridMode('off')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/20 text-white">OFF</button>
-            <button id="btn-grid-4q" onclick="setAbdominalGridMode('4q')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300">4 Quadrants</button>
-            <button id="btn-grid-9r" onclick="setAbdominalGridMode('9r')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300">9 Regions</button>
+            <button id="btn-grid-4q" onclick="setAbdominalGridMode('4q')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-200">4 Quadrants</button>
+            <button id="btn-grid-9r" onclick="setAbdominalGridMode('9r')" class="btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-200">9 Regions</button>
         </div>
     </div>
 
@@ -150,67 +161,75 @@
     <main class="relative z-10 flex-1 flex flex-col md:flex-row justify-between p-3 md:p-6 pointer-events-none overflow-y-auto md:overflow-hidden gap-3">
         
         <!-- Left Panel: Consultation Log & Maneuvers -->
-        <div id="panel-consult" class="w-full sm:w-[360px] md:w-[410px] max-w-[94vw] vision-card rounded-3xl p-4 md:p-5 flex flex-col justify-between pointer-events-auto overflow-y-auto max-h-[calc(100vh-160px)] space-y-3">
+        <div id="panel-consult" class="w-full sm:w-[320px] md:w-[350px] max-w-[94vw] vision-card rounded-3xl p-4 flex flex-col justify-between pointer-events-auto overflow-y-auto max-h-[calc(100vh-160px)] space-y-3">
             <div class="space-y-3">
                 <div class="flex items-center justify-between border-b border-white/10 pb-2">
-                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2"><i class="fa-solid fa-comments text-blue-400"></i> History Dialogue</h2>
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2"><i class="fa-solid fa-comments text-blue-400"></i> History Dialogue</h2>
                     <span id="patient-name-tag" class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">Patient: Sheena</span>
                 </div>
 
-                <div id="chat-history-log" class="space-y-2 max-h-[160px] md:max-h-[200px] overflow-y-auto p-2.5 rounded-2xl bg-black/40 border border-white/10 text-xs"></div>
+                <div id="chat-history-log" class="space-y-2 max-h-[150px] md:max-h-[185px] overflow-y-auto p-2.5 rounded-2xl bg-black/45 border border-white/10 text-xs"></div>
 
-                <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Ask Patient Question:</span>
+                <span class="text-[10px] font-semibold text-slate-300 uppercase tracking-wider block">Ask Patient Question:</span>
                 <div id="question-button-list" class="space-y-1"></div>
 
-                <span class="text-[10px] font-semibold text-purple-400 uppercase tracking-wider block pt-2 border-t border-white/10">Special Maneuvers:</span>
+                <span class="text-[10px] font-semibold text-purple-300 uppercase tracking-wider block pt-2 border-t border-white/10">Special Maneuvers:</span>
                 <div class="grid grid-cols-2 gap-1 text-xs">
-                    <button onclick="performSpecialSign('mcburney')" class="btn-hover p-1.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">McBurney's Point</button>
-                    <button onclick="performSpecialSign('blumberg')" class="btn-hover p-1.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">Blumberg's Rebound</button>
-                    <button onclick="performSpecialSign('rovsing')" class="btn-hover p-1.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-200 text-left font-medium">Rovsing's Sign</button>
-                    <button onclick="performSpecialSign('psoas')" class="btn-hover p-1.5 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 text-left font-medium">Psoas / Obturator</button>
+                    <button onclick="performSpecialSign('mcburney')" class="btn-hover p-1.5 rounded-xl bg-purple-500/25 border border-purple-400/40 text-purple-100 text-left font-medium">McBurney's Point</button>
+                    <button onclick="performSpecialSign('blumberg')" class="btn-hover p-1.5 rounded-xl bg-purple-500/25 border border-purple-400/40 text-purple-100 text-left font-medium">Blumberg's Rebound</button>
+                    <button onclick="performSpecialSign('rovsing')" class="btn-hover p-1.5 rounded-xl bg-purple-500/25 border border-purple-400/40 text-purple-100 text-left font-medium">Rovsing's Sign</button>
+                    <button onclick="performSpecialSign('psoas')" class="btn-hover p-1.5 rounded-xl bg-cyan-500/25 border border-cyan-400/40 text-cyan-100 text-left font-medium">Psoas / Obturator</button>
                 </div>
             </div>
         </div>
 
         <!-- Left Morph Panel (Inspect Mode) -->
         <div id="panel-morphs" class="hidden w-full sm:w-80 max-w-[94vw] vision-card rounded-3xl p-4 flex flex-col space-y-3 pointer-events-auto overflow-y-auto max-h-[calc(100vh-160px)]">
-            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 border-b border-white/10 pb-2"><i class="fa-solid fa-sliders text-blue-400 mr-1.5"></i> Inspection Findings</h2>
-            <div id="inspection-details" class="text-xs text-slate-300 leading-relaxed space-y-2 bg-white/5 p-3 rounded-2xl border border-white/10"></div>
-            <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 border-b border-white/10 pb-2"><i class="fa-solid fa-sliders text-blue-400 mr-1.5"></i> Inspection Findings</h2>
+            <div id="inspection-details" class="text-xs text-slate-200 leading-relaxed space-y-2 bg-black/30 p-3 rounded-2xl border border-white/10"></div>
+            <div class="p-2.5 rounded-2xl bg-black/30 border border-white/10 flex items-center justify-between">
                 <span class="text-xs font-semibold text-slate-200">X-Ray Organ Layer</span>
-                <button id="btn-xray-toggle" onclick="toggleXRayLayer()" class="btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-white/20 bg-white/5 text-slate-300">OFF</button>
+                <button id="btn-xray-toggle" onclick="toggleXRayLayer()" class="btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-white/20 bg-white/10 text-slate-200">OFF</button>
+            </div>
+            <div class="p-2.5 rounded-2xl bg-black/30 border border-white/10 flex items-center justify-between">
+                <span class="text-xs font-semibold text-slate-200">Lower Bed Blanket</span>
+                <button id="btn-blanket-toggle" onclick="toggleBlanketLayer()" class="btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-cyan-400/50 bg-cyan-500/20 text-cyan-300">ON</button>
             </div>
         </div>
 
         <!-- Right Panel: Clinical Monitor -->
-        <div class="w-full sm:w-80 max-w-[94vw] vision-card rounded-3xl p-4 md:p-5 flex flex-col justify-between pointer-events-auto max-h-[calc(100vh-160px)] space-y-3">
+        <div class="w-full sm:w-76 md:w-80 max-w-[94vw] vision-card rounded-3xl p-4 flex flex-col justify-between pointer-events-auto max-h-[calc(100vh-160px)] overflow-y-auto space-y-3">
             <div class="space-y-3">
                 <div class="flex items-center justify-between border-b border-white/10 pb-2">
-                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2"><i class="fa-solid fa-heart-pulse text-emerald-400"></i> Clinical Findings</h2>
-                    <span id="status-badge" class="px-2 py-0.5 text-[9px] font-bold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">NORMAL</span>
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2"><i class="fa-solid fa-heart-pulse text-emerald-400"></i> Clinical Findings</h2>
+                    <span id="status-badge" class="px-2 py-0.5 text-[9px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">NORMAL</span>
                 </div>
 
-                <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
-                    <span class="text-[10px] text-slate-400 uppercase font-semibold">Auscultation Sound:</span>
-                    <p id="auscultation-sound-desc" class="text-xs font-mono text-cyan-300">Hover stethoscope over abdomen...</p>
+                <!-- Auscultation Card -->
+                <div class="p-2.5 rounded-2xl bg-black/30 border border-white/10 space-y-1">
+                    <span class="text-[10px] text-slate-300 uppercase font-semibold">Auscultation Bowel Sounds:</span>
+                    <p id="auscultation-sound-desc" class="text-xs font-mono text-cyan-300 leading-snug">Hover stethoscope over abdomen...</p>
+                    <p id="auscultation-rationale" class="text-[10px] text-slate-300 leading-snug italic"></p>
                 </div>
 
-                <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
-                    <span class="text-[10px] text-slate-400 uppercase font-semibold">Percussion Note:</span>
-                    <p id="percussion-desc" class="text-xs font-mono text-amber-300">Tap quadrant to percuss...</p>
+                <!-- Percussion Card -->
+                <div class="p-2.5 rounded-2xl bg-black/30 border border-white/10 space-y-1">
+                    <span class="text-[10px] text-slate-300 uppercase font-semibold">Abdomen Percussion Note:</span>
+                    <p id="percussion-desc" class="text-xs font-mono text-amber-300 leading-snug">Tap quadrant to percuss...</p>
+                    <p id="percussion-rationale" class="text-[10px] text-slate-300 leading-snug italic">Resonant (gas), Dull (liver/fluid), Flat (bone/guarding)</p>
                 </div>
 
-                <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+                <div class="p-2.5 rounded-2xl bg-black/30 border border-white/10 space-y-2">
                     <div class="flex justify-between text-xs">
-                        <span class="text-slate-300 font-medium">Palpation Depth:</span>
+                        <span class="text-slate-200 font-medium">Palpation Depth:</span>
                         <span id="val-palp-depth" class="text-blue-400 font-mono font-bold">Light (1 cm)</span>
                     </div>
                     <input type="range" id="slider-palp-depth" min="1" max="5" value="1" step="1" oninput="updatePalpationDepth()" class="w-full">
                 </div>
 
-                <div class="p-2.5 rounded-2xl bg-white/5 border border-white/10 space-y-1">
+                <div class="p-2.5 rounded-2xl bg-black/30 border border-white/10 space-y-1">
                     <div class="flex justify-between text-xs">
-                        <span class="text-slate-400">Facial Pain Grimace:</span>
+                        <span class="text-slate-300">Facial Pain Grimace:</span>
                         <span id="grimace-level" class="font-bold text-emerald-400">0% (Calm)</span>
                     </div>
                     <div class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
@@ -230,7 +249,7 @@
             </div>
             <div id="osce-checklist" class="space-y-2 text-xs"></div>
             <div class="pt-3 border-t border-white/10 flex justify-between items-center">
-                <span class="text-xs text-slate-400">Total OSCE Score:</span>
+                <span class="text-xs text-slate-300">Total OSCE Score:</span>
                 <span id="osce-score-val" class="text-lg font-mono font-bold text-emerald-400">0 / 100</span>
             </div>
         </div>
@@ -239,12 +258,11 @@
     <!-- ENGINE SCRIPT -->
     <script>
         let scene, camera, renderer, orbitControls;
-        let patientGroup, torsoMesh, torsoGeo, baseTorsoPositions;
-        let headMesh, eyebrowLeft, eyebrowRight;
-        let ruqScarMesh, midlineScarMesh, organGroup, gridGroup4Q, gridGroup9R;
+        let patient, organGroup, gridGroup4Q, gridGroup9R, appendixMesh, blanketMesh;
         let stethoscopeMesh, cursorMarker;
-        let audioCtx = null, synthOsc = null;
+        let audioCtx = null, lastAuscultationTime = 0;
 
+        const clock = new THREE.Clock();
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
@@ -253,64 +271,331 @@
         let currentTool = 'history';
         let palpationDepth = 1;
         let xrayActive = false;
+        let blanketVisible = true;
 
-        const osceTracker = { history: false, inspected: false, auscultated: false, percussed: false, lightPalpated: false, deepPalpated: false, specialManeuvers: false };
+        let palpPoint = null;
+        let palpIndent = 0;
+        let currentPain = 0;
+        let targetPain = 0;
+        let pocusPhase = 0;
 
+        const osceTracker = {
+            history: false,
+            inspected: false,
+            auscultated: false,
+            percussed: false,
+            lightPalpated: false,
+            deepPalpated: false,
+            specialManeuvers: false
+        };
+
+        // =========================================================================
+        // 0. BUILT-IN HOSPITAL WARD BACKDROP GENERATOR + AUTO-IMAGE LOADER
+        // =========================================================================
+        function initHospitalWardBackground() {
+            // 1. Generate high-resolution built-in hospital ward scene immediately (works standalone)
+            const w = 1920, h = 1080;
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d');
+
+            // Ceiling & Recessed Fluorescent Lights
+            ctx.fillStyle = '#dce2ea';
+            ctx.fillRect(0, 0, w, h * 0.22);
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+            ctx.lineWidth = 2;
+            for (let gx = 0; gx < w; gx += 160) {
+                ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, h * 0.18); ctx.stroke();
+            }
+            // Bright ceiling light panels
+            [[1040, 60, 140, 48], [1460, 65, 130, 44]].forEach(([lx, ly, lw, lh]) => {
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowColor = 'rgba(255,255,255,0.9)';
+                ctx.shadowBlur = 24;
+                ctx.fillRect(lx, ly, lw, lh);
+                ctx.shadowBlur = 0;
+            });
+
+            // Upper Off-White Hospital Wall & Steel-Blue Lower Dado Wall
+            const wallGrad = ctx.createLinearGradient(0, h * 0.16, 0, h * 0.65);
+            wallGrad.addColorStop(0, '#cfd7e2');
+            wallGrad.addColorStop(1, '#bcc6d4');
+            ctx.fillStyle = wallGrad;
+            ctx.fillRect(0, h * 0.16, w, h * 0.32);
+
+            const dadoGrad = ctx.createLinearGradient(0, h * 0.45, 0, h * 0.85);
+            dadoGrad.addColorStop(0, '#628bb3');
+            dadoGrad.addColorStop(1, '#4c7299');
+            ctx.fillStyle = dadoGrad;
+            ctx.fillRect(0, h * 0.45, w, h * 0.38);
+
+            // Clinical Terrazzo Floor
+            const floorGrad = ctx.createLinearGradient(0, h * 0.78, 0, h);
+            floorGrad.addColorStop(0, '#b8c0ca');
+            floorGrad.addColorStop(1, '#cfd6df');
+            ctx.fillStyle = floorGrad;
+            ctx.fillRect(0, h * 0.78, w, h * 0.22);
+
+            // Privacy Curtain Track & Pleated Beige Curtain (Background Bay)
+            ctx.strokeStyle = '#7c8796';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(640, 40);
+            ctx.lineTo(1360, 40);
+            ctx.quadraticCurveTo(1410, 40, 1410, 110);
+            ctx.lineTo(1410, 180);
+            ctx.stroke();
+
+            ctx.fillStyle = '#c8c3b4';
+            ctx.fillRect(645, 160, 215, 290);
+            ctx.fillStyle = 'rgba(90, 85, 74, 0.25)';
+            for (let px = 655; px < 855; px += 18) ctx.fillRect(px, 160, 7, 290);
+
+            // Analog Ward Wall Clock
+            ctx.fillStyle = '#f8fafc';
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(1095, 232, 34, 0, Math.PI * 2);
+            ctx.fill(); ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(1095, 232); ctx.lineTo(1082, 220);
+            ctx.moveTo(1095, 232); ctx.lineTo(1112, 224);
+            ctx.stroke();
+
+            // Left Wall Medical Gas Console & Green O2 Flowmeter
+            ctx.save();
+            ctx.transform(1, 0.14, 0, 1, 0, 0);
+            ctx.fillStyle = '#94a3b8';
+            ctx.fillRect(130, 65, 390, 95);
+            // O2 (Green), Vacuum (Yellow), Air (White) outlets
+            const outletColors = ['#e2e8f0', '#22c55e', '#eab308', '#3b82f6'];
+            outletColors.forEach((col, idx) => {
+                ctx.fillStyle = '#f1f5f9';
+                ctx.fillRect(150 + idx * 88, 78, 64, 68);
+                ctx.fillStyle = col;
+                ctx.fillRect(162 + idx * 88, 88, 40, 46);
+            });
+            ctx.restore();
+
+            // Foreground Green Oxygen Flowmeter on Left Wall
+            ctx.fillStyle = '#15803d';
+            ctx.fillRect(110, 760, 72, 105);
+            ctx.fillStyle = '#dcfce7';
+            ctx.fillRect(132, 635, 28, 125);
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.lineWidth = 7;
+            ctx.beginPath(); ctx.moveTo(182, 815); ctx.lineTo(232, 825); ctx.lineTo(232, 910); ctx.stroke();
+
+            // Hospital Bed Frame & Casters
+            const bedLeft = 340, bedRight = 1760, bedTop = 415, bedBot = 865;
+            // Bed Headboard & Footboard (Sage-Gray Steel)
+            ctx.fillStyle = '#6c756d';
+            ctx.beginPath();
+            ctx.roundRect(bedLeft, bedTop + 65, 115, 365, 18);
+            ctx.roundRect(bedRight - 115, bedTop + 70, 115, 360, 18);
+            ctx.fill();
+
+            // Lower Frame & Casters
+            ctx.fillStyle = '#5c645d';
+            ctx.fillRect(bedLeft + 40, bedBot, bedRight - bedLeft - 80, 26);
+            ctx.fillRect(bedLeft + 25, bedBot + 42, bedRight - bedLeft - 50, 22);
+            [bedLeft + 185, bedRight - 225].forEach(wx => {
+                ctx.fillStyle = '#334155';
+                ctx.beginPath(); ctx.arc(wx, bedBot + 115, 36, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#cbd5e1';
+                ctx.beginPath(); ctx.arc(wx, bedBot + 115, 18, 0, Math.PI * 2); ctx.fill();
+            });
+
+            // Mattress Base (White Sheet on Left/Center, Light Blue Blanket on Right)
+            const mattGrad = ctx.createLinearGradient(0, bedTop, 0, bedBot - 35);
+            mattGrad.addColorStop(0, '#f8fafc');
+            mattGrad.addColorStop(0.75, '#e2e8f0');
+            mattGrad.addColorStop(1, '#cbd5e1');
+            ctx.fillStyle = mattGrad;
+            ctx.beginPath();
+            ctx.moveTo(bedLeft + 110, bedTop + 10);
+            ctx.lineTo(bedRight - 110, bedTop + 10);
+            ctx.lineTo(bedRight - 75, bedBot - 35);
+            ctx.lineTo(bedLeft + 75, bedBot - 35);
+            ctx.closePath();
+            ctx.fill();
+
+            // Plump Light-Blue Pillow on Left Head of Bed (u = 24% to 36%)
+            const pilGrad = ctx.createLinearGradient(455, 445, 705, 745);
+            pilGrad.addColorStop(0, '#93c5fd');
+            pilGrad.addColorStop(0.5, '#7ab3ef');
+            pilGrad.addColorStop(1, '#5b9bd5');
+            ctx.fillStyle = pilGrad;
+            ctx.beginPath();
+            ctx.roundRect(450, 442, 248, 305, 42);
+            ctx.fill();
+
+            // Folded Light-Blue Blanket on Right Half of Bed (u = 55% to 88%)
+            const blkGrad = ctx.createLinearGradient(1050, 415, 1690, 825);
+            blkGrad.addColorStop(0, '#8cc2f2');
+            blkGrad.addColorStop(0.5, '#76b1e8');
+            blkGrad.addColorStop(1, '#5d9cd6');
+            ctx.fillStyle = blkGrad;
+            ctx.beginPath();
+            ctx.moveTo(1055, bedTop + 6);
+            ctx.lineTo(bedRight - 108, bedTop + 6);
+            ctx.lineTo(bedRight - 74, bedBot - 34);
+            ctx.lineTo(1062, bedBot - 34);
+            ctx.closePath();
+            ctx.fill();
+            // Blanket cuff fold line
+            ctx.strokeStyle = 'rgba(30, 64, 175, 0.18)';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(1165, bedTop + 6);
+            ctx.lineTo(1172, bedBot - 34);
+            ctx.stroke();
+
+            // Horizontal Side Safety Rail Bar
+            ctx.fillStyle = '#737c74';
+            ctx.beginPath();
+            ctx.roundRect(bedLeft + 15, bedBot - 34, bedRight - bedLeft - 30, 22, 10);
+            ctx.fill();
+
+            document.body.style.backgroundImage = `url('${c.toDataURL('image/jpeg', 0.92)}')`;
+
+            // 2. Also check if external 'hospital-ward-bg.jpg' exists in the folder and apply it automatically
+            const probeImg = new Image();
+            probeImg.onload = () => {
+                document.body.style.backgroundImage = `url('hospital-ward-bg.jpg')`;
+            };
+            probeImg.src = 'hospital-ward-bg.jpg';
+        }
+
+        function handleWardPhotoUpload(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                document.body.style.backgroundImage = `url('${e.target.result}')`;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // =========================================================================
+        // 1. CLINICAL DATABASE (ALIGNED WITH AUSCULTATION & PERCUSSION NOTES)
+        // =========================================================================
         const caseDatabase = {
             normal: {
                 name: "Sheena (Normal Baseline)",
                 status: "STABLE / NORMAL",
-                inspectionText: "Contour: Flat/rounded, symmetrical. Skin intact & uniform. No visible scars or distention.",
+                inspectionText: "Contour: Flat/symmetrical muscular contour. Skin intact & uniform. No visible scars or distention.",
                 scarType: 'none',
                 postureFlexed: false,
-                distension: 0,
-                auscultation: { desc: "Soft, intermittent gurgles (5–30/min)", rate: 15, pitch: 400, type: 'normal' },
-                percussion: { RUQ: "Dullness over liver; tympany rest", LUQ: "Predominantly tympany", RLQ: "Tympany", LLQ: "Tympany" },
-                palpationPain: { RUQ: 0, LUQ: 0, RLQ: 0, LLQ: 0 }
+                distension: 0.0,
+                asymmetric: false,
+                auscultation: {
+                    desc: "Gurgling sounds & occasional borborygmi (5–30/min)",
+                    rationale: "Normal peristaltic movement of gas & fluids (gurgles) and loud rumbling air within gut (borborygmi).",
+                    rate: 15,
+                    type: 'normal'
+                },
+                percussion: {
+                    RUQ: { note: "Dull sound", detail: "Normal dullness over solid liver span" },
+                    LUQ: { note: "Resonant sound", detail: "Hollow resonance over gastric air & bowel" },
+                    RLQ: { note: "Resonant sound", detail: "Normal air-filled intestinal resonance" },
+                    LLQ: { note: "Resonant sound", detail: "Normal air-filled intestinal resonance" }
+                },
+                palpationPain: { RUQ: 0, LUQ: 0, RLQ: 0, LLQ: 0 },
+                pocus: "Normal peristalsis; no free intraperitoneal fluid."
             },
             obstruction: {
-                name: "Pau (Acute Bowel Obstruction)",
-                status: "ACUTE OBSTRUCTION",
-                inspectionText: "Swollen, asymmetrical distention over center & right side. Tight, shiny skin. Cholecystectomy scar under right ribs. Visible peristalsis waves.",
+                name: "Pau (Small Bowel Obstruction)",
+                status: "SMALL BOWEL OBSTRUCTION",
+                inspectionText: "Swollen, asymmetrical distention over center & right side. Tight, shiny skin. Subcostal scar under right ribs.",
                 scarType: 'ruq',
                 postureFlexed: false,
-                distension: 0.8,
-                auscultation: { desc: "Early: High-pitched metallic tinkling/clinking (>30/min). Late: Silent abdomen.", rate: 35, pitch: 850, type: 'tinkling' },
-                percussion: { RUQ: "Hyperresonance over swollen gut; quiet liver dullness", LUQ: "Tympany", RLQ: "Tympany with pooled fluid dullness", LLQ: "Hyperresonance" },
-                palpationPain: { RUQ: 80, LUQ: 55, RLQ: 75, LLQ: 60 }
+                distension: 0.048,
+                asymmetric: true,
+                auscultation: {
+                    desc: "Hollow, high-pitched tinkles ('similar to rain on a tin roof')",
+                    rationale: "Small bowel obstruction — gas & fluid under high intraluminal tension (becomes hypoactive late).",
+                    rate: 35,
+                    type: 'tinkling'
+                },
+                percussion: {
+                    RUQ: { note: "Resonant sound", detail: "Gas-distended bowel loops masking liver dullness" },
+                    LUQ: { note: "Resonant sound", detail: "Air-trapped proximal bowel loops" },
+                    RLQ: { note: "Dull sound", detail: "Dullness over pooled fluid-filled obstructed loops" },
+                    LLQ: { note: "Resonant sound", detail: "Distended gas-filled intestinal loops" }
+                },
+                palpationPain: { RUQ: 80, LUQ: 55, RLQ: 75, LLQ: 60 },
+                pocus: "Dilated fluid-filled bowel loops (>2.5 cm) with to-and-fro peristalsis."
             },
             gastroenteritis: {
                 name: "Emem (Acute Gastroenteritis)",
-                status: "GASTROENTERITIS",
-                inspectionText: "Flat/rounded contour, symmetrical. Mild distention with active gut movements. Skin dry/pale. No scars.",
+                status: "HYPERACTIVE / GASTROENTERITIS",
+                inspectionText: "Flat/rounded contour, symmetrical. Mild distention with active gut movements. No surgical scars.",
                 scarType: 'none',
                 postureFlexed: false,
-                distension: 0.3,
-                auscultation: { desc: "Hyperactive borborygmi, rushing water sounds (>30/min)", rate: 40, pitch: 500, type: 'rushing' },
-                percussion: { RUQ: "Predominantly tympany; liver dullness", LUQ: "Tympany", RLQ: "Hyperresonant tympany", LLQ: "Hyperresonant tympany" },
-                palpationPain: { RUQ: 35, LUQ: 35, RLQ: 35, LLQ: 35 }
+                distension: 0.016,
+                asymmetric: false,
+                auscultation: {
+                    desc: "Hyperactive sounds (>30/min, extremely increased)",
+                    rationale: "Rapid gut motility — seen in gastroenteritis, laxatives, IBD, and early bowel obstruction.",
+                    rate: 45,
+                    type: 'hyperactive'
+                },
+                percussion: {
+                    RUQ: { note: "Dull sound", detail: "Normal liver dullness" },
+                    LUQ: { note: "Resonant sound", detail: "Increased intestinal gas resonance" },
+                    RLQ: { note: "Resonant sound", detail: "Hyper-peristaltic gas-filled bowel" },
+                    LLQ: { note: "Resonant sound", detail: "Hyper-peristaltic gas-filled bowel" }
+                },
+                palpationPain: { RUQ: 35, LUQ: 35, RLQ: 35, LLQ: 35 },
+                pocus: "Hyperperistaltic fluid-filled lumen; normal wall thickness."
             },
             appendicitis: {
                 name: "Meanne (Acute Appendicitis)",
                 status: "ACUTE APPENDICITIS",
-                inspectionText: "Patient lies motionless with knees flexed to reduce peritoneal friction. Respiration abdominal guarding.",
+                inspectionText: "Patient lies motionless with knees flexed to reduce peritoneal friction. Localized RLQ guarding.",
                 scarType: 'none',
                 postureFlexed: true,
-                distension: 0.15,
-                auscultation: { desc: "Hypoactive bowel sounds (1–3 dull clicks/min)", rate: 2, pitch: 250, type: 'hypoactive' },
-                percussion: { RUQ: "Normal tympany", LUQ: "Normal tympany", RLQ: "Marked McBurney's point tenderness", LLQ: "Normal tympany" },
-                palpationPain: { RUQ: 20, LUQ: 20, RLQ: 85, LLQ: 30 }
+                distension: 0.010,
+                asymmetric: false,
+                auscultation: {
+                    desc: "Hypoactive sounds (diminished, 1–3 clicks/min)",
+                    rationale: "Diminished peristalsis due to localized peritonitis (also seen in proximal obstruction, ileus, ischaemia).",
+                    rate: 2,
+                    type: 'hypoactive'
+                },
+                percussion: {
+                    RUQ: { note: "Dull sound", detail: "Normal liver dullness" },
+                    LUQ: { note: "Resonant sound", detail: "Normal bowel resonance" },
+                    RLQ: { note: "Flat sound", detail: "Rigid muscular guarding & localized McBurney's point tenderness" },
+                    LLQ: { note: "Resonant sound", detail: "Normal bowel resonance" }
+                },
+                palpationPain: { RUQ: 20, LUQ: 20, RLQ: 85, LLQ: 30 },
+                pocus: "Non-compressible blind-ending tubular structure >6 mm in RLQ."
             },
             ileus: {
                 name: "Jannah (Paralytic Ileus)",
                 status: "PARALYTIC ILEUS",
-                inspectionText: "Generalized symmetrical bloated stomach. Midline laparotomy surgical scar. Absent visible peristalsis.",
+                inspectionText: "Generalized symmetrical bloated abdomen. Vertical midline laparotomy surgical scar. Absent peristalsis.",
                 scarType: 'midline',
                 postureFlexed: false,
-                distension: 0.75,
-                auscultation: { desc: "Silent abdomen (0 sounds heard over 3–5 minutes)", rate: 0, pitch: 0, type: 'silent' },
-                percussion: { RUQ: "Tympany", LUQ: "Tympany", RLQ: "Tympany", LLQ: "Tympany" },
-                palpationPain: { RUQ: 50, LUQ: 50, RLQ: 50, LLQ: 50 }
+                distension: 0.052,
+                asymmetric: false,
+                auscultation: {
+                    desc: "Hypoactive / Absent sounds (0 sounds over 3–5 min)",
+                    rationale: "Absent bowel sounds — paralytic ileus, peritonitis, proximal obstruction, or bowel ischaemia.",
+                    rate: 0,
+                    type: 'silent'
+                },
+                percussion: {
+                    RUQ: { note: "Resonant sound", detail: "Generalized gas-distended bowel resonance" },
+                    LUQ: { note: "Resonant sound", detail: "Generalized gas-distended bowel resonance" },
+                    RLQ: { note: "Resonant sound", detail: "Generalized gas-distended bowel resonance" },
+                    LLQ: { note: "Resonant sound", detail: "Generalized gas-distended bowel resonance" }
+                },
+                palpationPain: { RUQ: 50, LUQ: 50, RLQ: 50, LLQ: 50 },
+                pocus: "Gas- and fluid-distended bowel loops with aperistalsis."
             }
         };
 
@@ -369,11 +654,886 @@
             }
         };
 
+        // =========================================================================
+        // 2. PROCEDURAL REALISTIC SKIN, FACE (BUZZ-CUT) & FABRIC TEXTURES
+        // =========================================================================
+        function createDermalBumpTexture() {
+            const size = 512;
+            const c = document.createElement('canvas');
+            c.width = c.height = size;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#808080';
+            ctx.fillRect(0, 0, size, size);
+            for (let i = 0; i < 14000; i++) {
+                const x = Math.random() * size;
+                const y = Math.random() * size;
+                ctx.fillStyle = i % 2 === 0 ? 'rgba(105,105,105,0.28)' : 'rgba(150,150,150,0.22)';
+                ctx.fillRect(x, y, 1.1, 1.1);
+            }
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(4, 4);
+            return tex;
+        }
+
+        function createTorsoSkinTexture() {
+            const w = 1024, h = 1024;
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#dfb094';
+            ctx.fillRect(0, 0, w, h);
+
+            for (let i = 0; i < 3200; i++) {
+                const x = Math.random() * w;
+                const y = Math.random() * h;
+                const r = 8 + Math.random() * 24;
+                const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+                g.addColorStop(0, i % 2 === 0 ? 'rgba(198, 122, 96, 0.028)' : 'rgba(238, 198, 172, 0.028)');
+                g.addColorStop(1, 'rgba(223, 176, 148, 0)');
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const frontU = w * 0.25;
+            function softShadow(cx, cy, rx, ry, color, alpha) {
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.scale(rx, ry);
+                const grad = ctx.createRadialGradient(0, 0, 0.1, 0, 0, 1);
+                grad.addColorStop(0, `rgba(${color}, ${alpha})`);
+                grad.addColorStop(1, `rgba(${color}, 0)`);
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // 1. Suprasternal notch & clavicles
+            softShadow(frontU, h * 0.14, 30, 16, '156, 102, 76', 0.28);
+            softShadow(frontU - 72, h * 0.15, 62, 10, '248, 218, 196', 0.34);
+            softShadow(frontU + 72, h * 0.15, 62, 10, '248, 218, 196', 0.34);
+
+            // 2. Pectoralis major
+            softShadow(frontU, h * 0.28, 13, 68, '160, 104, 78', 0.22);
+            softShadow(frontU - 76, h * 0.33, 66, 20, '152, 96, 70', 0.28);
+            softShadow(frontU + 76, h * 0.33, 66, 20, '152, 96, 70', 0.28);
+            softShadow(frontU - 74, h * 0.28, 54, 32, '246, 214, 190', 0.24);
+            softShadow(frontU + 74, h * 0.28, 54, 32, '246, 214, 190', 0.24);
+
+            // 3. Areolae & nipples on chest
+            softShadow(frontU - 92, h * 0.305, 12, 12, '158, 94, 78', 0.52);
+            softShadow(frontU + 92, h * 0.305, 12, 12, '158, 94, 78', 0.52);
+            softShadow(frontU - 92, h * 0.305, 4.2, 4.2, '130, 70, 58', 0.62);
+            softShadow(frontU + 92, h * 0.305, 4.2, 4.2, '130, 70, 58', 0.62);
+
+            // 4. Costal margin
+            softShadow(frontU - 52, h * 0.42, 44, 16, '156, 100, 74', 0.20);
+            softShadow(frontU + 52, h * 0.42, 44, 16, '156, 100, 74', 0.20);
+
+            // 5. Linea alba & rectus abdominis
+            softShadow(frontU, h * 0.58, 9, 165, '160, 104, 78', 0.22);
+            [-1, 1].forEach(side => {
+                const bx = frontU + side * 32;
+                softShadow(frontU + side * 64, h * 0.58, 13, 155, '160, 104, 78', 0.20);
+                [0.48, 0.57, 0.67].forEach(vy => {
+                    softShadow(bx, h * vy, 22, 32, '245, 213, 189', 0.20);
+                    softShadow(bx, h * (vy + 0.044), 23, 7, '160, 104, 78', 0.16);
+                });
+            });
+
+            // 6. Umbilicus (Navel) centered on lower-mid abdomen
+            softShadow(frontU, h * 0.665, 10, 12, '124, 70, 48', 0.72);
+            softShadow(frontU, h * 0.673, 11, 5.5, '248, 218, 194', 0.35);
+
+            // 7. Posterior spinal groove
+            softShadow(w * 0.75, h * 0.48, 15, 240, '158, 102, 76', 0.24);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.flipY = false;
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createLimbSkinTexture() {
+            const size = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#dfb094';
+            ctx.fillRect(0, 0, size, size);
+            for (let i = 0; i < 1600; i++) {
+                const x = Math.random() * size;
+                const y = Math.random() * size;
+                const r = 6 + Math.random() * 18;
+                const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+                g.addColorStop(0, i % 2 === 0 ? 'rgba(196, 120, 94, 0.025)' : 'rgba(236, 196, 170, 0.025)');
+                g.addColorStop(1, 'rgba(223, 176, 148, 0)');
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createRealisticFaceTexture() {
+            const w = 1024, h = 1024;
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#dfb094';
+            ctx.fillRect(0, 0, w, h);
+
+            function tint(cx, cy, rx, ry, rgba) {
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.scale(rx, ry);
+                const g = ctx.createRadialGradient(0, 0, 0.1, 0, 0, 1);
+                g.addColorStop(0, rgba);
+                g.addColorStop(1, 'rgba(223, 176, 148, 0)');
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            const cx = w * 0.50;
+
+            // 1. Short Buzz-Cut Hairline & Scalp Shading
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(w, 0);
+            ctx.lineTo(w, h * 0.76);
+            ctx.quadraticCurveTo(w * 0.84, h * 0.74, w * 0.78, h * 0.56);
+            ctx.quadraticCurveTo(w * 0.73, h * 0.42, w * 0.65, h * 0.45);
+            ctx.lineTo(w * 0.64, h * 0.53);
+            ctx.lineTo(w * 0.625, h * 0.53);
+            ctx.quadraticCurveTo(w * 0.615, h * 0.36, w * 0.585, h * 0.345);
+            ctx.quadraticCurveTo(cx, h * 0.335, w * 0.415, h * 0.345);
+            ctx.quadraticCurveTo(w * 0.385, h * 0.36, w * 0.375, h * 0.53);
+            ctx.lineTo(w * 0.36, h * 0.53);
+            ctx.quadraticCurveTo(w * 0.27, h * 0.42, w * 0.22, h * 0.56);
+            ctx.quadraticCurveTo(w * 0.16, h * 0.74, 0, h * 0.76);
+            ctx.closePath();
+
+            const hairGrad = ctx.createLinearGradient(0, h * 0.22, 0, h * 0.55);
+            hairGrad.addColorStop(0, 'rgba(68, 52, 42, 0.86)');
+            hairGrad.addColorStop(0.65, 'rgba(84, 65, 52, 0.78)');
+            hairGrad.addColorStop(1, 'rgba(128, 98, 78, 0.32)');
+            ctx.fillStyle = hairGrad;
+            ctx.fill();
+
+            ctx.clip();
+            for (let i = 0; i < 24000; i++) {
+                const hx = Math.random() * w;
+                const hy = Math.random() * h * 0.76;
+                ctx.fillStyle = i % 2 === 0 ? 'rgba(42, 30, 22, 0.34)' : 'rgba(110, 86, 68, 0.22)';
+                ctx.fillRect(hx, hy, 1.5, 2.2);
+            }
+            ctx.restore();
+
+            // 2. Forehead & Cheek Contouring
+            tint(cx, h * 0.39, 85, 26, 'rgba(246, 214, 190, 0.25)');
+            tint(cx - 64, h * 0.54, 42, 34, 'rgba(206, 122, 98, 0.22)');
+            tint(cx + 64, h * 0.54, 42, 34, 'rgba(206, 122, 98, 0.22)');
+            tint(cx - 46, h * 0.60, 18, 36, 'rgba(154, 98, 74, 0.18)');
+            tint(cx + 46, h * 0.60, 18, 36, 'rgba(154, 98, 74, 0.18)');
+            tint(cx - 78, h * 0.64, 24, 52, 'rgba(148, 94, 70, 0.24)');
+            tint(cx + 78, h * 0.64, 24, 52, 'rgba(148, 94, 70, 0.24)');
+
+            // 3. Orbital Sockets & Eyebrows
+            [-1, 1].forEach(side => {
+                const ex = cx + side * 49;
+                const ey = h * 0.471;
+                tint(ex, ey - 10, 26, 9, 'rgba(142, 86, 64, 0.34)');
+                tint(ex, ey + 11, 24, 7, 'rgba(156, 98, 76, 0.22)');
+
+                ctx.strokeStyle = 'rgba(46, 30, 22, 0.72)';
+                ctx.lineWidth = 2.4;
+                ctx.beginPath();
+                ctx.moveTo(ex - side * 19, ey + 1);
+                ctx.quadraticCurveTo(ex, ey - 8, ex + side * 20, ey + 2);
+                ctx.stroke();
+
+                ctx.strokeStyle = 'rgba(72, 48, 36, 0.45)';
+                ctx.lineWidth = 1.4;
+                ctx.beginPath();
+                ctx.moveTo(ex - side * 17, ey + 2);
+                ctx.quadraticCurveTo(ex, ey + 8, ex + side * 18, ey + 2);
+                ctx.stroke();
+
+                const by = h * 0.445;
+                ctx.strokeStyle = 'rgba(54, 38, 28, 0.75)';
+                ctx.lineWidth = 1.6;
+                for (let b = 0; b < 42; b++) {
+                    const t = b / 42;
+                    const bx = (cx + side * 24) + side * (t * 48);
+                    const archY = by - Math.sin(t * Math.PI) * 4.5 + (t > 0.7 ? (t - 0.7) * 14 : 0);
+                    ctx.beginPath();
+                    ctx.moveTo(bx, archY + 3);
+                    ctx.lineTo(bx + side * 5, archY - 3);
+                    ctx.stroke();
+                }
+            });
+
+            // 4. Nose Bridge & Nostrils
+            tint(cx, h * 0.515, 8, 42, 'rgba(250, 222, 200, 0.34)');
+            tint(cx, h * 0.552, 14, 10, 'rgba(248, 216, 194, 0.28)');
+            tint(cx - 15, h * 0.568, 7, 4.5, 'rgba(82, 42, 32, 0.62)');
+            tint(cx + 15, h * 0.568, 7, 4.5, 'rgba(82, 42, 32, 0.62)');
+
+            // 5. Philtrum & Vermilion Lips
+            tint(cx, h * 0.592, 6, 12, 'rgba(154, 96, 74, 0.24)');
+            tint(cx - 10, h * 0.614, 18, 6.5, 'rgba(182, 96, 92, 0.58)');
+            tint(cx + 10, h * 0.614, 18, 6.5, 'rgba(182, 96, 92, 0.58)');
+            tint(cx, h * 0.634, 24, 8.5, 'rgba(194, 108, 102, 0.52)');
+            tint(cx, h * 0.633, 14, 3.5, 'rgba(246, 204, 194, 0.30)');
+            ctx.strokeStyle = 'rgba(104, 46, 44, 0.68)';
+            ctx.lineWidth = 2.0;
+            ctx.beginPath();
+            ctx.moveTo(cx - 28, h * 0.624);
+            ctx.quadraticCurveTo(cx - 10, h * 0.621, cx, h * 0.623);
+            ctx.quadraticCurveTo(cx + 10, h * 0.621, cx + 28, h * 0.624);
+            ctx.stroke();
+
+            // 6. Chin Cleft
+            tint(cx, h * 0.654, 22, 7, 'rgba(148, 92, 68, 0.26)');
+            tint(cx, h * 0.685, 24, 12, 'rgba(244, 210, 186, 0.22)');
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createIrisTexture() {
+            const c = document.createElement('canvas');
+            c.width = c.height = 512;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#f5f6f8';
+            ctx.fillRect(0, 0, 512, 512);
+
+            const cx = 256, cy = 256;
+            const grad = ctx.createRadialGradient(cx, cy, 32, cx, cy, 118);
+            grad.addColorStop(0, '#1e130c');
+            grad.addColorStop(0.45, '#463224');
+            grad.addColorStop(0.85, '#2b1d14');
+            grad.addColorStop(1, '#120b07');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 118, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#050404';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 44, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+            ctx.beginPath();
+            ctx.arc(cx - 26, cy - 26, 13, 0, Math.PI * 2);
+            ctx.fill();
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        function createFabricTexture(baseHex = '#e5dfd3', stripeColor = 'rgba(120, 110, 96, 0.06)') {
+            const c = document.createElement('canvas');
+            c.width = c.height = 512;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = baseHex;
+            ctx.fillRect(0, 0, 512, 512);
+            ctx.fillStyle = stripeColor;
+            for (let y = 0; y < 512; y += 4) ctx.fillRect(0, y, 512, 1.5);
+            for (let x = 0; x < 512; x += 4) ctx.fillRect(x, 0, 1.5, 512);
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(6, 6);
+            tex.encoding = THREE.sRGBEncoding;
+            return tex;
+        }
+
+        // =========================================================================
+        // 3. FULL-BODY REALISTIC PATIENT BUILDER
+        // =========================================================================
+        class RealisticClinicalPatient {
+            constructor() {
+                this.root = new THREE.Group();
+                const dermalBump = createDermalBumpTexture();
+
+                this.torsoMat = new THREE.MeshStandardMaterial({
+                    map: createTorsoSkinTexture(),
+                    bumpMap: dermalBump,
+                    bumpScale: 0.0012,
+                    roughness: 0.65,
+                    metalness: 0.0
+                });
+
+                this.limbSkinMat = new THREE.MeshStandardMaterial({
+                    map: createLimbSkinTexture(),
+                    bumpMap: dermalBump,
+                    bumpScale: 0.0012,
+                    roughness: 0.65,
+                    metalness: 0.0
+                });
+
+                this.faceMat = new THREE.MeshStandardMaterial({
+                    map: createRealisticFaceTexture(),
+                    bumpMap: dermalBump,
+                    bumpScale: 0.0010,
+                    roughness: 0.62,
+                    metalness: 0.0
+                });
+
+                this.hairMat = new THREE.MeshStandardMaterial({
+                    color: 0x3b2d23,
+                    roughness: 0.65
+                });
+
+                this.boxerMat = new THREE.MeshStandardMaterial({
+                    map: createFabricTexture('#e5dfd3', 'rgba(120, 110, 96, 0.06)'),
+                    roughness: 0.85
+                });
+
+                this.waistbandMat = new THREE.MeshStandardMaterial({
+                    color: 0xd4cec2,
+                    roughness: 0.82
+                });
+
+                this.buildHeadAndRealisticFace();
+                this.buildNeckAndTorso();
+                this.buildClinicalBoxerBriefs();
+                this.buildArmsAndArticulatedHands();
+                this.buildLegsAndFeet();
+                this.buildSurgicalScars();
+            }
+
+            createLoftedMesh(rings, radialSegs, material) {
+                const lengthSegs = rings.length - 1;
+                const positions = [];
+                const uvs = [];
+                const indices = [];
+
+                for (let j = 0; j <= lengthSegs; j++) {
+                    const v = j / lengthSegs;
+                    const ring = rings[j];
+                    for (let i = 0; i <= radialSegs; i++) {
+                        const u = i / radialSegs;
+                        const theta = u * Math.PI * 2;
+                        const pt = ring(theta, v);
+                        positions.push(pt.x, pt.y, pt.z);
+                        uvs.push(u, v);
+                    }
+                }
+
+                for (let j = 0; j < lengthSegs; j++) {
+                    for (let i = 0; i < radialSegs; i++) {
+                        const a = j * (radialSegs + 1) + i;
+                        const b = a + radialSegs + 1;
+                        const c = a + 1;
+                        const d = b + 1;
+                        indices.push(a, c, b);
+                        indices.push(c, d, b);
+                    }
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+                geo.setIndex(indices);
+                geo.computeVertexNormals();
+
+                const mesh = new THREE.Mesh(geo, material);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                return mesh;
+            }
+
+            buildHeadAndRealisticFace() {
+                this.headGroup = new THREE.Group();
+                this.headGroup.position.set(0, 1.638, 0.004);
+
+                const headGeo = new THREE.SphereGeometry(0.097, 96, 96);
+                headGeo.rotateY(-Math.PI / 2);
+
+                const pos = headGeo.attributes.position;
+                for (let i = 0; i < pos.count; i++) {
+                    let x = pos.getX(i);
+                    let y = pos.getY(i);
+                    let z = pos.getZ(i);
+
+                    const nx = x / 0.097;
+                    const ny = y / 0.097;
+                    const nz = z / 0.097;
+
+                    y *= 1.19;
+
+                    if (ny < 0) {
+                        const t = Math.abs(ny);
+                        x *= 1.0 - Math.pow(t, 1.65) * 0.24;
+                        z *= 1.0 - Math.pow(t, 1.85) * 0.13;
+                        if (nz > 0.25) {
+                            const chin = Math.exp(-Math.pow((ny + 0.86) / 0.16, 2)) * Math.exp(-Math.pow(nx / 0.28, 2));
+                            z += chin * 0.015;
+                        }
+                    }
+
+                    if (nz > 0.15) {
+                        const cheekR = Math.sqrt(Math.pow((Math.abs(nx) - 0.44) / 0.26, 2) + Math.pow((ny + 0.05) / 0.22, 2));
+                        if (cheekR < 1.3) {
+                            z += Math.exp(-cheekR * cheekR * 1.8) * 0.0095;
+                            x += Math.sign(nx) * Math.exp(-cheekR * cheekR * 2.0) * 0.0045;
+                        }
+
+                        const browR = Math.sqrt(Math.pow((Math.abs(nx) - 0.28) / 0.22, 2) + Math.pow((ny - 0.16) / 0.06, 2));
+                        if (browR < 1.3) {
+                            z += Math.exp(-browR * browR * 2.0) * 0.0045;
+                        }
+
+                        const eyeR = Math.sqrt(Math.pow((Math.abs(nx) - 0.30) / 0.15, 2) + Math.pow((ny - 0.09) / 0.085, 2));
+                        if (eyeR < 1.35) {
+                            z -= Math.exp(-eyeR * eyeR * 2.5) * 0.0135;
+                        }
+
+                        if (ny > -0.22 && ny < 0.18 && Math.abs(nx) < 0.20) {
+                            const bt = THREE.MathUtils.clamp((0.16 - ny) / 0.34, 0, 1);
+                            const bw = THREE.MathUtils.lerp(0.062, 0.095, bt);
+                            const bh = THREE.MathUtils.lerp(0.006, 0.023, Math.pow(bt, 0.85));
+                            const prof = Math.exp(-Math.pow(nx / bw, 2));
+                            const tip = Math.exp(-Math.pow((ny + 0.16) / 0.068, 2)) * Math.exp(-Math.pow(nx / 0.105, 2));
+                            z += prof * bh + tip * 0.007;
+
+                            const alarR = Math.sqrt(Math.pow((Math.abs(nx) - 0.112) / 0.058, 2) + Math.pow((ny + 0.18) / 0.048, 2));
+                            if (alarR < 1.3) z += Math.exp(-alarR * alarR * 2.2) * 0.007;
+                        }
+
+                        if (Math.abs(nx) < 0.22 && Math.abs(ny + 0.38) < 0.11) {
+                            const xEnv = Math.cos((nx / 0.22) * Math.PI * 0.5);
+                            const upLip = Math.exp(-Math.pow((ny + 0.345) / 0.025, 2)) * 0.0082 * xEnv;
+                            const slit = Math.exp(-Math.pow((ny + 0.38) / 0.010, 2)) * 0.0052 * xEnv;
+                            const loLip = Math.exp(-Math.pow((ny + 0.42) / 0.029, 2)) * 0.0090 * xEnv;
+                            z += upLip - slit + loLip;
+                        }
+                    }
+
+                    pos.setXYZ(i, x, y, z);
+                }
+                headGeo.computeVertexNormals();
+                const headMesh = new THREE.Mesh(headGeo, this.faceMat);
+                headMesh.castShadow = true;
+                this.headGroup.add(headMesh);
+
+                const eyeMat = new THREE.MeshStandardMaterial({ map: createIrisTexture(), roughness: 0.12 });
+                [-1, 1].forEach(side => {
+                    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.0112, 28, 28), eyeMat);
+                    eye.position.set(side * 0.0295, 0.0105, 0.0815);
+                    this.headGroup.add(eye);
+
+                    const lidCurve = new THREE.CatmullRomCurve3([
+                        new THREE.Vector3(side * 0.017, 0.010, 0.088),
+                        new THREE.Vector3(side * 0.0295, 0.0145, 0.092),
+                        new THREE.Vector3(side * 0.042, 0.0095, 0.086)
+                    ]);
+                    const lid = new THREE.Mesh(new THREE.TubeGeometry(lidCurve, 16, 0.0017, 8, false), this.limbSkinMat);
+                    this.headGroup.add(lid);
+                });
+
+                this.leftBrow = this.makeBrow(-0.030, true);
+                this.rightBrow = this.makeBrow(0.030, false);
+                this.headGroup.add(this.leftBrow, this.rightBrow);
+
+                [-1, 1].forEach(side => {
+                    const earGeo = new THREE.SphereGeometry(0.021, 20, 20);
+                    earGeo.scale(0.30, 1.18, 0.62);
+                    const ear = new THREE.Mesh(earGeo, this.limbSkinMat);
+                    ear.position.set(side * 0.093, -0.004, -0.005);
+                    ear.rotation.y = side * -0.22;
+                    this.headGroup.add(ear);
+                });
+
+                this.root.add(this.headGroup);
+            }
+
+            makeBrow(xPos, isLeft) {
+                const s = isLeft ? -1 : 1;
+                const curve = new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(-s * 0.015, 0.0005, 0),
+                    new THREE.Vector3(0, 0.0025, 0.0015),
+                    new THREE.Vector3(s * 0.016, -0.001, -0.0015)
+                ]);
+                const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.0018, 8, false), this.hairMat);
+                mesh.position.set(xPos, 0.021, 0.0935);
+                return mesh;
+            }
+
+            buildNeckAndTorso() {
+                const radialSegs = 96;
+                const lengthSegs = 120;
+                const yTop = 1.54;
+                const yBot = 0.96;
+
+                const rings = [];
+                for (let j = 0; j <= lengthSegs; j++) {
+                    const v = j / lengthSegs;
+                    const y = THREE.MathUtils.lerp(yTop, yBot, v);
+
+                    let rx = 0.15, rz = 0.10, zOffset = 0;
+
+                    if (v < 0.14) {
+                        const t = v / 0.14;
+                        rx = THREE.MathUtils.lerp(0.054, 0.072, t * t);
+                        rz = THREE.MathUtils.lerp(0.056, 0.066, t * t);
+                        zOffset = THREE.MathUtils.lerp(0.005, -0.004, t);
+                    } else if (v < 0.24) {
+                        const t = (v - 0.14) / 0.10;
+                        const s = Math.sin(t * Math.PI * 0.5);
+                        rx = THREE.MathUtils.lerp(0.072, 0.192, s);
+                        rz = THREE.MathUtils.lerp(0.066, 0.108, s);
+                    } else if (v < 0.45) {
+                        const t = (v - 0.24) / 0.21;
+                        rx = THREE.MathUtils.lerp(0.192, 0.142, Math.sin(t * Math.PI * 0.5));
+                        rz = THREE.MathUtils.lerp(0.108, 0.098, t);
+                    } else if (v < 0.78) {
+                        const t = (v - 0.45) / 0.33;
+                        rx = THREE.MathUtils.lerp(0.142, 0.164, Math.sin(t * Math.PI * 0.5));
+                        rz = 0.098 + Math.sin(t * Math.PI) * 0.010;
+                    } else {
+                        const t = (v - 0.78) / 0.22;
+                        rx = THREE.MathUtils.lerp(0.164, 0.168, t);
+                        rz = THREE.MathUtils.lerp(0.098, 0.104, t);
+                    }
+
+                    rings.push((theta) => {
+                        const cosT = Math.cos(theta);
+                        const sinT = Math.sin(theta);
+                        let x = cosT * rx;
+                        let z = sinT * rz + zOffset;
+
+                        if (sinT > 0.15) {
+                            const ant = Math.pow(sinT, 1.5);
+
+                            if (v > 0.24 && v < 0.40) {
+                                const pecV = Math.sin(((v - 0.24) / 0.16) * Math.PI);
+                                const pecX = Math.exp(-Math.pow((Math.abs(cosT) - 0.42) / 0.26, 2));
+                                z += pecV * pecX * 0.013 * ant;
+                            }
+
+                            if (v > 0.42 && v < 0.84 && Math.abs(cosT) < 0.55) {
+                                const lineaAlba = Math.exp(-Math.pow(cosT / 0.06, 2));
+                                const rectus = Math.exp(-Math.pow((Math.abs(cosT) - 0.22) / 0.13, 2));
+                                const abEnv = Math.sin(((v - 0.42) / 0.42) * Math.PI);
+                                z += (rectus * 0.005 - lineaAlba * 0.003) * abEnv * ant;
+                            }
+
+                            const du = cosT * rx;
+                            const dv = (v - 0.665) * (yTop - yBot);
+                            const rNav = Math.sqrt(du * du + dv * dv);
+                            if (rNav < 0.020) {
+                                z -= Math.exp(-Math.pow(rNav / 0.0075, 2)) * 0.009;
+                            }
+                        } else if (sinT < -0.2 && v > 0.25 && v < 0.85) {
+                            const spineGroove = Math.exp(-Math.pow(cosT / 0.10, 2));
+                            z += spineGroove * 0.006 * Math.abs(sinT);
+                        }
+
+                        return new THREE.Vector3(x, y, z);
+                    });
+                }
+
+                this.torsoMesh = this.createLoftedMesh(rings, radialSegs, this.torsoMat);
+                this.torsoGeo = this.torsoMesh.geometry;
+                this.baseTorsoPos = new Float32Array(this.torsoGeo.attributes.position.array);
+                this.root.add(this.torsoMesh);
+            }
+
+            buildClinicalBoxerBriefs() {
+                this.boxerGroup = new THREE.Group();
+
+                const bandRings = [0.995, 0.96].map(y => (theta) => {
+                    const cosT = Math.cos(theta), sinT = Math.sin(theta);
+                    return new THREE.Vector3(cosT * 0.171, y, sinT * 0.108);
+                });
+                this.boxerGroup.add(this.createLoftedMesh(bandRings, 64, this.waistbandMat));
+
+                const pelvisRings = [];
+                for (let j = 0; j <= 16; j++) {
+                    const t = j / 16;
+                    const y = THREE.MathUtils.lerp(0.96, 0.81, t);
+                    const rx = THREE.MathUtils.lerp(0.171, 0.176, Math.sin(t * Math.PI * 0.5));
+                    const rz = THREE.MathUtils.lerp(0.108, 0.116, Math.sin(t * Math.PI * 0.7));
+                    pelvisRings.push((theta) => {
+                        const cosT = Math.cos(theta), sinT = Math.sin(theta);
+                        const glute = sinT < 0 ? Math.abs(sinT) * 0.014 * Math.sin(t * Math.PI) : 0;
+                        const frontContour = sinT > 0.5 ? Math.pow(sinT, 3) * 0.012 * Math.sin(t * Math.PI) : 0;
+                        return new THREE.Vector3(cosT * rx, y, sinT * rz - glute + frontContour);
+                    });
+                }
+                this.boxerGroup.add(this.createLoftedMesh(pelvisRings, 64, this.boxerMat));
+
+                [-1, 1].forEach(side => {
+                    const sleeveRings = [];
+                    for (let j = 0; j <= 10; j++) {
+                        const t = j / 10;
+                        const y = THREE.MathUtils.lerp(0.84, 0.735, t);
+                        const r = THREE.MathUtils.lerp(0.092, 0.083, t);
+                        const xCenter = side * THREE.MathUtils.lerp(0.084, 0.094, t);
+                        sleeveRings.push((theta) => new THREE.Vector3(
+                            xCenter + Math.cos(theta) * r,
+                            y,
+                            Math.sin(theta) * (r * 1.04) - 0.005
+                        ));
+                    }
+                    this.boxerGroup.add(this.createLoftedMesh(sleeveRings, 48, this.boxerMat));
+                });
+
+                this.root.add(this.boxerGroup);
+            }
+
+            buildArmsAndArticulatedHands() {
+                [-1, 1].forEach(side => {
+                    const delt = new THREE.Mesh(new THREE.SphereGeometry(0.056, 28, 28), this.limbSkinMat);
+                    delt.scale.set(0.95, 1.15, 0.95);
+                    delt.position.set(side * 0.195, 1.385, -0.005);
+                    delt.castShadow = true;
+                    this.root.add(delt);
+
+                    const armPath = [
+                        { p: new THREE.Vector3(side * 0.198, 1.38, -0.005), rx: 0.052, rz: 0.054 },
+                        { p: new THREE.Vector3(side * 0.222, 1.26, -0.010), rx: 0.047, rz: 0.050 },
+                        { p: new THREE.Vector3(side * 0.242, 1.14, -0.008), rx: 0.041, rz: 0.042 },
+                        { p: new THREE.Vector3(side * 0.268, 1.04,  0.008), rx: 0.043, rz: 0.045 },
+                        { p: new THREE.Vector3(side * 0.296, 0.93,  0.024), rx: 0.032, rz: 0.034 },
+                        { p: new THREE.Vector3(side * 0.318, 0.85,  0.036), rx: 0.024, rz: 0.028 }
+                    ];
+
+                    const armRings = armPath.map(node => (theta) => new THREE.Vector3(
+                        node.p.x + Math.cos(theta) * node.rx,
+                        node.p.y,
+                        node.p.z + Math.sin(theta) * node.rz
+                    ));
+                    this.root.add(this.createLoftedMesh(armRings, 36, this.limbSkinMat));
+
+                    const handGroup = new THREE.Group();
+                    handGroup.position.set(side * 0.318, 0.85, 0.036);
+                    handGroup.rotation.z = side * 0.24;
+                    handGroup.rotation.y = side * -0.35;
+
+                    const palmGeo = new THREE.BoxGeometry(0.068, 0.082, 0.024, 12, 12, 6);
+                    const pPos = palmGeo.attributes.position;
+                    for (let i = 0; i < pPos.count; i++) {
+                        let px = pPos.getX(i), py = pPos.getY(i), pz = pPos.getZ(i);
+                        const t = (py + 0.041) / 0.082;
+                        px *= THREE.MathUtils.lerp(1.05, 0.76, t);
+                        const rNorm = Math.sqrt(Math.pow(px / 0.036, 2) + Math.pow(pz / 0.013, 2));
+                        if (rNorm > 0.7) pz *= 0.78;
+                        pPos.setXYZ(i, px, py, pz);
+                    }
+                    palmGeo.computeVertexNormals();
+                    const palm = new THREE.Mesh(palmGeo, this.limbSkinMat);
+                    palm.position.set(0, -0.040, 0);
+                    palm.castShadow = true;
+                    handGroup.add(palm);
+
+                    const thumbBase = new THREE.Group();
+                    thumbBase.position.set(-side * 0.034, -0.035, 0.008);
+                    thumbBase.rotation.z = -side * 0.68;
+                    thumbBase.rotation.x = 0.25;
+                    this.addFingerChain(thumbBase, [0.028, 0.024], 0.0085);
+                    handGroup.add(thumbBase);
+
+                    const fingerSpecs = [
+                        { x: -side * 0.025, len: [0.028, 0.020, 0.015], r: 0.0072, spread: -side * 0.08 },
+                        { x: -side * 0.008, len: [0.031, 0.022, 0.016], r: 0.0075, spread: -side * 0.02 },
+                        { x:  side * 0.009, len: [0.029, 0.020, 0.015], r: 0.0071, spread:  side * 0.03 },
+                        { x:  side * 0.025, len: [0.023, 0.016, 0.013], r: 0.0062, spread:  side * 0.09 }
+                    ];
+
+                    fingerSpecs.forEach(f => {
+                        const fRoot = new THREE.Group();
+                        fRoot.position.set(f.x, -0.079, 0);
+                        fRoot.rotation.z = f.spread;
+                        this.addFingerChain(fRoot, f.len, f.r);
+                        handGroup.add(fRoot);
+                    });
+
+                    this.root.add(handGroup);
+                });
+            }
+
+            addFingerChain(parent, lengths, baseRadius) {
+                let currentParent = parent;
+                let r = baseRadius;
+                lengths.forEach((segLen) => {
+                    const segGeo = new THREE.CylinderGeometry(r * 0.86, r, segLen, 14);
+                    segGeo.translate(0, -segLen / 2, 0);
+                    const segMesh = new THREE.Mesh(segGeo, this.limbSkinMat);
+                    segMesh.castShadow = true;
+                    currentParent.add(segMesh);
+
+                    const cap = new THREE.Mesh(new THREE.SphereGeometry(r * 0.86, 12, 12), this.limbSkinMat);
+                    cap.position.set(0, -segLen, 0);
+                    currentParent.add(cap);
+
+                    const nextPivot = new THREE.Group();
+                    nextPivot.position.set(0, -segLen, 0);
+                    nextPivot.rotation.x = -0.14;
+                    currentParent.add(nextPivot);
+                    currentParent = nextPivot;
+                    r *= 0.86;
+                });
+            }
+
+            buildLegsAndFeet() {
+                this.legsGroup = new THREE.Group();
+                this.legsGroup.position.set(0, 0.76, 0);
+
+                [-1, 1].forEach(side => {
+                    const legStations = [
+                        { y: 0.00,  x: side * 0.095, z: -0.004, rx: 0.080, rz: 0.084 },
+                        { y: -0.14, x: side * 0.098, z:  0.002, rx: 0.068, rz: 0.072 },
+                        { y: -0.28, x: side * 0.098, z:  0.006, rx: 0.054, rz: 0.058 },
+                        { y: -0.42, x: side * 0.098, z: -0.008, rx: 0.055, rz: 0.060 },
+                        { y: -0.58, x: side * 0.096, z: -0.005, rx: 0.041, rz: 0.044 },
+                        { y: -0.69, x: side * 0.095, z: -0.004, rx: 0.034, rz: 0.038 }
+                    ];
+
+                    const legRings = legStations.map(st => (theta) => {
+                        const cosT = Math.cos(theta), sinT = Math.sin(theta);
+                        let zMod = sinT * st.rz;
+                        if (Math.abs(st.y + 0.28) < 0.02 && sinT > 0.5) {
+                            zMod += Math.pow(sinT, 3) * 0.008;
+                        }
+                        return new THREE.Vector3(st.x + cosT * st.rx, st.y, st.z + zMod);
+                    });
+
+                    this.legsGroup.add(this.createLoftedMesh(legRings, 44, this.limbSkinMat));
+
+                    const footGroup = new THREE.Group();
+                    footGroup.position.set(side * 0.095, -0.76, 0);
+                    footGroup.rotation.y = side * 0.08;
+
+                    const footGeo = new THREE.BoxGeometry(0.076, 0.055, 0.215, 16, 10, 24);
+                    const fPos = footGeo.attributes.position;
+                    for (let i = 0; i < fPos.count; i++) {
+                        let fx = fPos.getX(i), fy = fPos.getY(i), fz = fPos.getZ(i);
+                        const zNorm = (fz + 0.1075) / 0.215;
+                        if (fy > 0) {
+                            fy *= THREE.MathUtils.lerp(1.15, 0.36, Math.pow(zNorm, 0.85));
+                        }
+                        fx *= THREE.MathUtils.lerp(0.76, 1.08, Math.sin(zNorm * Math.PI * 0.72));
+                        if (zNorm > 0.85) {
+                            const toeRound = Math.cos(((zNorm - 0.85) / 0.15) * Math.PI * 0.5);
+                            fx *= THREE.MathUtils.lerp(0.55, 1.0, toeRound);
+                        }
+                        fPos.setXYZ(i, fx, fy + 0.0275, fz + 0.048);
+                    }
+                    footGeo.computeVertexNormals();
+                    const footMesh = new THREE.Mesh(footGeo, this.limbSkinMat);
+                    footMesh.castShadow = true;
+                    footMesh.receiveShadow = true;
+                    footGroup.add(footMesh);
+
+                    this.legsGroup.add(footGroup);
+                });
+
+                this.root.add(this.legsGroup);
+            }
+
+            buildSurgicalScars() {
+                const scarMat = new THREE.MeshStandardMaterial({ color: 0x9f4a48, roughness: 0.45 });
+
+                const ruqCurve = new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(-0.04, 1.29, 0.102),
+                    new THREE.Vector3(-0.085, 1.26, 0.092),
+                    new THREE.Vector3(-0.125, 1.23, 0.072)
+                ]);
+                this.ruqScar = new THREE.Mesh(new THREE.TubeGeometry(ruqCurve, 16, 0.0024, 8, false), scarMat);
+                this.ruqScar.visible = false;
+                this.root.add(this.ruqScar);
+
+                const midCurve = new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(0, 1.28, 0.107),
+                    new THREE.Vector3(0, 1.18, 0.114),
+                    new THREE.Vector3(0, 1.12, 0.106),
+                    new THREE.Vector3(0, 1.03, 0.109)
+                ]);
+                this.midScar = new THREE.Mesh(new THREE.TubeGeometry(midCurve, 24, 0.0026, 8, false), scarMat);
+                this.midScar.visible = false;
+                this.root.add(this.midScar);
+            }
+
+            update(t, cData, pt, indent, pain) {
+                const pos = this.torsoGeo.attributes.position;
+                const breath = Math.sin(t * 1.45) * 0.0038;
+
+                for (let i = 0; i < pos.count; i++) {
+                    const bx = this.baseTorsoPos[i * 3];
+                    const by = this.baseTorsoPos[i * 3 + 1];
+                    const bz = this.baseTorsoPos[i * 3 + 2];
+
+                    let z = bz;
+                    if (bz > 0.01) {
+                        const antWeight = THREE.MathUtils.clamp((bz - 0.01) / 0.09, 0, 1);
+
+                        const breathEnv = Math.exp(-Math.pow((by - 1.26) / 0.18, 2));
+                        z += breath * breathEnv * antWeight;
+
+                        if (cData.distension > 0) {
+                            const distEnv = Math.exp(-Math.pow((by - 1.14) / 0.12, 2));
+                            const asym = cData.asymmetric ? (bx < 0 ? 1.25 : 0.75) : 1.0;
+                            z += cData.distension * distEnv * asym * antWeight;
+                        }
+
+                        if (pt && indent > 0) {
+                            const dx = bx - pt.x;
+                            const dy = by - pt.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist < 0.075) {
+                                z -= Math.exp(-Math.pow(dist / 0.032, 2)) * indent * antWeight;
+                            }
+                        }
+                    }
+                    pos.setZ(i, z);
+                }
+                pos.needsUpdate = true;
+                this.torsoGeo.computeVertexNormals();
+
+                this.ruqScar.visible = cData.scarType === 'ruq';
+                this.midScar.visible = cData.scarType === 'midline';
+
+                const targetKneeFlex = cData.postureFlexed ? -0.14 : 0.0;
+                this.legsGroup.rotation.x = THREE.MathUtils.lerp(this.legsGroup.rotation.x, targetKneeFlex, 0.08);
+
+                const pNorm = pain / 100;
+                this.leftBrow.rotation.z = -pNorm * 0.28;
+                this.rightBrow.rotation.z = pNorm * 0.28;
+                this.leftBrow.position.y = 0.021 - pNorm * 0.004;
+                this.rightBrow.position.y = 0.021 - pNorm * 0.004;
+                this.headGroup.rotation.z = Math.sin(t * 14) * pNorm * 0.022;
+            }
+        }
+
+        // =========================================================================
+        // 4. INITIALIZATION & TRANSPARENT WARD SCENE ALIGNMENT
+        // =========================================================================
         window.onload = function() {
             try {
+                initHospitalWardBackground();
                 initScene();
                 initVR();
                 createPatientModel();
+                createBedBlanketDrape();
                 createAbdominalGridOverlays();
                 createInternalOrgans();
                 createTools();
@@ -389,42 +1549,63 @@
         function initScene() {
             const container = document.getElementById('canvas-container');
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x0f172a);
 
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.05, 50);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true,
+                powerPreference: 'high-performance'
+            });
+            renderer.setClearColor(0x000000, 0);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.06;
             renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
 
             orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
             orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.07;
+            orbitControls.minDistance = 0.65;
+            orbitControls.maxDistance = 2.65;
+            // Constrain orbit around side-of-bed perspective so patient stays grounded on the mattress
+            orbitControls.minAzimuthAngle = -Math.PI * 0.64;
+            orbitControls.maxAzimuthAngle = -Math.PI * 0.36;
+            orbitControls.minPolarAngle = 0.45;
+            orbitControls.maxPolarAngle = 1.22;
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
-            scene.add(ambientLight);
+            // Clinical ward lighting matching overhead fluorescent panels & left ward window
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x94a3b8, 0.85);
+            scene.add(hemiLight);
 
-            const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
-            keyLight.position.set(-2, 4, 3);
+            const keyLight = new THREE.DirectionalLight(0xfffcf8, 0.90);
+            keyLight.position.set(-1.2, 2.4, 0.8);
             keyLight.castShadow = true;
+            keyLight.shadow.mapSize.set(2048, 2048);
+            keyLight.shadow.bias = -0.0005;
             scene.add(keyLight);
 
-            const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.4);
-            fillLight.position.set(2, 2, -2);
+            const fillLight = new THREE.DirectionalLight(0xe0f2fe, 0.45);
+            fillLight.position.set(1.4, 1.5, -0.8);
             scene.add(fillLight);
 
-            // Examination Bed
-            const bed = new THREE.Mesh(
-                new THREE.BoxGeometry(1.4, 0.2, 3.2),
-                new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.4 })
+            // Invisible shadow-catcher plane so the 3D patient casts soft contact shadows onto the bed sheet
+            const shadowCatcher = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.5, 2.5),
+                new THREE.ShadowMaterial({ opacity: 0.30 })
             );
-            bed.position.set(0, -0.1, 0);
-            scene.add(bed);
+            shadowCatcher.rotation.x = -Math.PI / 2;
+            shadowCatcher.position.set(0, 0.012, 0.02);
+            shadowCatcher.receiveShadow = true;
+            scene.add(shadowCatcher);
 
-            // Interactive Cursor Marker
+            // Interactive Surface Cursor Marker
             cursorMarker = new THREE.Mesh(
-                new THREE.RingGeometry(0.02, 0.04, 32),
+                new THREE.RingGeometry(0.014, 0.026, 32),
                 new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
             );
             cursorMarker.rotateX(-Math.PI / 2);
@@ -433,87 +1614,202 @@
         }
 
         function initVR() {
-            // Safely initialize WebXR VRButton if supported
             try {
-                if (navigator.xr && typeof VRButton !== 'undefined') {
+                if (navigator.xr && typeof THREE.VRButton !== 'undefined') {
                     renderer.xr.enabled = true;
-                    document.getElementById('vr-button-container').appendChild(VRButton.createButton(renderer));
+                    document.getElementById('vr-button-container').appendChild(THREE.VRButton.createButton(renderer));
                 }
             } catch (e) {
-                console.warn("VR WebXR capability not active or VRButton module unavailable:", e);
+                console.warn("VR WebXR capability not active:", e);
             }
         }
 
         function createPatientModel() {
-            patientGroup = new THREE.Group();
+            patient = new RealisticClinicalPatient();
+            // Head (-Z, z = -0.76) rests on left blue pillow; abdomen (z = -0.27) on center white sheet; feet (+Z, z = +0.83) on right
+            patient.root.rotation.x = -Math.PI / 2;
+            patient.root.position.set(0, 0.105, 0.88);
+            scene.add(patient.root);
+        }
 
-            const skinMat = new THREE.MeshStandardMaterial({ color: 0xe0a98b, roughness: 0.6 });
+        // Contoured 3D Light-Blue Hospital Blanket draped from hips down to feet (matching bed's right blanket)
+        function createBedBlanketDrape() {
+            const blanketGeo = new THREE.CylinderGeometry(0.24, 0.25, 0.94, 48, 24, true, 0, Math.PI);
+            blanketGeo.rotateZ(Math.PI / 2);
+            blanketGeo.rotateY(Math.PI / 2);
 
-            // Abdominal Torso Geometry
-            torsoGeo = new THREE.BoxGeometry(0.72, 0.35, 1.2, 48, 24, 48);
-            baseTorsoPositions = new Float32Array(torsoGeo.attributes.position.array);
+            const pos = blanketGeo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                let x = pos.getX(i);
+                let y = pos.getY(i);
+                let z = pos.getZ(i);
 
-            torsoMesh = new THREE.Mesh(torsoGeo, skinMat);
-            torsoMesh.position.set(0, 0.18, 0);
-            patientGroup.add(torsoMesh);
+                // Taper blanket height gently from hips (z = -0.08) toward feet (z = +0.86)
+                const zNorm = THREE.MathUtils.clamp((z + 0.47) / 0.94, 0, 1);
+                y *= THREE.MathUtils.lerp(0.66, 0.56, zNorm);
+                x *= 1.18;
+                // Slight tenting over feet near zNorm = 0.88
+                if (zNorm > 0.72 && Math.abs(x) < 0.16) {
+                    y += Math.sin(((zNorm - 0.72) / 0.28) * Math.PI) * 0.032;
+                }
+                pos.setXYZ(i, x, y, z);
+            }
+            blanketGeo.computeVertexNormals();
 
-            // Surgical Scars
-            const scarMat = new THREE.MeshBasicMaterial({ color: 0x991b1b });
-            ruqScarMesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.01, 0.02), scarMat);
-            ruqScarMesh.position.set(-0.18, 0.36, 0.2);
-            ruqScarMesh.rotation.y = -0.3;
-            ruqScarMesh.visible = false;
-            patientGroup.add(ruqScarMesh);
+            const blanketMat = new THREE.MeshStandardMaterial({
+                map: createFabricTexture('#7ab3ef', 'rgba(30, 64, 175, 0.08)'),
+                roughness: 0.86,
+                side: THREE.DoubleSide
+            });
 
-            midlineScarMesh = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.01, 0.4), scarMat);
-            midlineScarMesh.position.set(0, 0.36, 0);
-            midlineScarMesh.visible = false;
-            patientGroup.add(midlineScarMesh);
+            blanketMesh = new THREE.Mesh(blanketGeo, blanketMat);
+            blanketMesh.position.set(0, 0.055, 0.39);
+            blanketMesh.castShadow = true;
+            blanketMesh.receiveShadow = true;
+            scene.add(blanketMesh);
+        }
 
-            // Patient Head
-            const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 32, 32), skinMat);
-            head.position.set(0, 0.28, 0.85);
-            patientGroup.add(head);
-
-            eyebrowLeft = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.01, 0.01), new THREE.MeshBasicMaterial({ color: 0x1c1917 }));
-            eyebrowLeft.position.set(-0.065, 0.36, 0.98);
-            eyebrowRight = eyebrowLeft.clone();
-            eyebrowRight.position.x = 0.065;
-            patientGroup.add(eyebrowLeft, eyebrowRight);
-
-            scene.add(patientGroup);
+        function toggleBlanketLayer() {
+            blanketVisible = !blanketVisible;
+            if (blanketMesh) blanketMesh.visible = blanketVisible;
+            const btn = document.getElementById('btn-blanket-toggle');
+            btn.innerText = blanketVisible ? 'ON' : 'OFF';
+            btn.className = blanketVisible
+                ? 'btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-cyan-400/50 bg-cyan-500/20 text-cyan-300'
+                : 'btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-white/20 bg-white/10 text-slate-200';
         }
 
         function createAbdominalGridOverlays() {
+            function makeSurfaceCurve(points, mat) {
+                const curve = new THREE.CatmullRomCurve3(points);
+                const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(40));
+                return new THREE.Line(geo, mat);
+            }
+
+            const zOff = 0.114;
             gridGroup4Q = new THREE.Group();
-            gridGroup4Q.position.set(0, 0.36, 0);
-            const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
-            gridGroup4Q.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0.5), new THREE.Vector3(0,0,-0.5)]), lineMat));
-            gridGroup4Q.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.3,0,0), new THREE.Vector3(0.3,0,0)]), lineMat));
+            const mat4 = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+            gridGroup4Q.add(makeSurfaceCurve([
+                new THREE.Vector3(0, 1.00, zOff),
+                new THREE.Vector3(0, 1.15, zOff + 0.004),
+                new THREE.Vector3(0, 1.31, zOff)
+            ], mat4));
+            gridGroup4Q.add(makeSurfaceCurve([
+                new THREE.Vector3(-0.145, 1.15, 0.045),
+                new THREE.Vector3(-0.08, 1.15, zOff - 0.005),
+                new THREE.Vector3(0, 1.15, zOff + 0.004),
+                new THREE.Vector3(0.08, 1.15, zOff - 0.005),
+                new THREE.Vector3(0.145, 1.15, 0.045)
+            ], mat4));
             gridGroup4Q.visible = false;
-            patientGroup.add(gridGroup4Q);
+            patient.root.add(gridGroup4Q);
 
             gridGroup9R = new THREE.Group();
-            gridGroup9R.position.set(0, 0.36, 0);
-            const lineMat9 = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2 });
-            gridGroup9R.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.12,0,0.5), new THREE.Vector3(-0.12,0,-0.5)]), lineMat9));
-            gridGroup9R.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0.12,0,0.5), new THREE.Vector3(0.12,0,-0.5)]), lineMat9));
+            const mat9 = new THREE.LineBasicMaterial({ color: 0xf59e0b, linewidth: 2 });
+            [-0.068, 0.068].forEach(xPos => {
+                gridGroup9R.add(makeSurfaceCurve([
+                    new THREE.Vector3(xPos, 1.00, zOff - 0.008),
+                    new THREE.Vector3(xPos, 1.15, zOff - 0.004),
+                    new THREE.Vector3(xPos, 1.31, zOff - 0.008)
+                ], mat9));
+            });
+            [1.085, 1.215].forEach(yPos => {
+                gridGroup9R.add(makeSurfaceCurve([
+                    new THREE.Vector3(-0.145, yPos, 0.045),
+                    new THREE.Vector3(-0.075, yPos, zOff - 0.004),
+                    new THREE.Vector3(0, yPos, zOff + 0.003),
+                    new THREE.Vector3(0.075, yPos, zOff - 0.004),
+                    new THREE.Vector3(0.145, yPos, 0.045)
+                ], mat9));
+            });
             gridGroup9R.visible = false;
-            patientGroup.add(gridGroup9R);
+            patient.root.add(gridGroup9R);
         }
 
         function createInternalOrgans() {
             organGroup = new THREE.Group();
-            organGroup.position.set(0, 0.18, 0);
-            const liver = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16), new THREE.MeshStandardMaterial({ color: 0x881337, transparent: true, opacity: 0.85 }));
-            liver.position.set(-0.14, 0.02, 0.15);
+
+            const lungMat = new THREE.MeshStandardMaterial({ color: 0xd98a82, roughness: 0.55 });
+            [-1, 1].forEach(side => {
+                const lungGeo = new THREE.SphereGeometry(0.062, 24, 24);
+                lungGeo.scale(0.82, 1.45, 0.72);
+                const lung = new THREE.Mesh(lungGeo, lungMat);
+                lung.position.set(side * 0.064, 1.385, 0.045);
+                lung.rotation.z = side * -0.10;
+                organGroup.add(lung);
+            });
+
+            const heartGeo = new THREE.SphereGeometry(0.036, 20, 20);
+            heartGeo.scale(0.85, 1.15, 0.85);
+            const heart = new THREE.Mesh(heartGeo, new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.4 }));
+            heart.position.set(0.015, 1.365, 0.056);
+            heart.rotation.z = 0.35;
+            organGroup.add(heart);
+
+            const liverGeo = new THREE.SphereGeometry(0.072, 24, 20);
+            liverGeo.scale(1.32, 0.72, 0.70);
+            const liver = new THREE.Mesh(liverGeo, new THREE.MeshStandardMaterial({ color: 0x7f1d1d, roughness: 0.42 }));
+            liver.position.set(-0.048, 1.275, 0.052);
+            liver.rotation.z = 0.18;
             organGroup.add(liver);
+
+            const gallbladder = new THREE.Mesh(
+                new THREE.SphereGeometry(0.012, 14, 14),
+                new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.35 })
+            );
+            gallbladder.scale.set(0.8, 1.5, 0.8);
+            gallbladder.position.set(-0.052, 1.235, 0.056);
+            organGroup.add(gallbladder);
+
+            const stomachGeo = new THREE.SphereGeometry(0.052, 20, 20);
+            stomachGeo.scale(0.85, 1.22, 0.72);
+            const stomach = new THREE.Mesh(stomachGeo, new THREE.MeshStandardMaterial({ color: 0xe09f96, roughness: 0.48 }));
+            stomach.position.set(0.048, 1.245, 0.052);
+            stomach.rotation.z = -0.35;
+            organGroup.add(stomach);
+
+            const colonCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(-0.095, 1.04, 0.046),
+                new THREE.Vector3(-0.095, 1.20, 0.052),
+                new THREE.Vector3(0.0, 1.185, 0.060),
+                new THREE.Vector3(0.095, 1.20, 0.052),
+                new THREE.Vector3(0.095, 1.04, 0.046)
+            ]);
+            const colon = new THREE.Mesh(
+                new THREE.TubeGeometry(colonCurve, 32, 0.021, 12, false),
+                new THREE.MeshStandardMaterial({ color: 0xd99b84, roughness: 0.52 })
+            );
+            organGroup.add(colon);
+
+            const bowelGeo = new THREE.SphereGeometry(0.064, 20, 20);
+            bowelGeo.scale(1.12, 1.12, 0.64);
+            const smallBowel = new THREE.Mesh(bowelGeo, new THREE.MeshStandardMaterial({ color: 0xe8a598, roughness: 0.56 }));
+            smallBowel.position.set(0, 1.12, 0.054);
+            organGroup.add(smallBowel);
+
+            const bladderGeo = new THREE.SphereGeometry(0.030, 18, 18);
+            bladderGeo.scale(1.25, 0.85, 0.80);
+            const bladder = new THREE.Mesh(bladderGeo, new THREE.MeshStandardMaterial({ color: 0xd98a7c, roughness: 0.45 }));
+            bladder.position.set(0, 1.015, 0.054);
+            organGroup.add(bladder);
+
+            appendixMesh = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.006, 0.008, 0.045, 12),
+                new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.4 })
+            );
+            appendixMesh.position.set(-0.088, 1.032, 0.050);
+            appendixMesh.rotation.z = 0.45;
+            organGroup.add(appendixMesh);
+
             organGroup.visible = false;
-            patientGroup.add(organGroup);
+            patient.root.add(organGroup);
         }
 
         function createTools() {
-            stethoscopeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 32), new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8 }));
+            stethoscopeMesh = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.026, 0.026, 0.014, 32),
+                new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.2 })
+            );
             stethoscopeMesh.visible = false;
             scene.add(stethoscopeMesh);
         }
@@ -524,35 +1820,37 @@
 
             ['normal', 'obstruction', 'gastroenteritis', 'appendicitis', 'ileus'].forEach(k => {
                 const b = document.getElementById(`case-${k}`);
-                if (b) b.className = (k === cKey) ? 'btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500 text-slate-950' : 'btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-slate-300';
+                if (b) {
+                    b.className = (k === cKey)
+                        ? 'btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500 text-slate-950'
+                        : 'btn-hover px-2.5 py-0.5 rounded-full text-[11px] font-medium text-slate-200';
+                }
             });
 
             document.getElementById('patient-name-tag').innerText = `Patient: ${cData.name}`;
             document.getElementById('status-badge').innerText = cData.status;
             document.getElementById('inspection-details').innerText = cData.inspectionText;
+            document.getElementById('pocus-finding').innerText = cData.pocus;
 
-            ruqScarMesh.visible = cData.scarType === 'ruq';
-            midlineScarMesh.visible = cData.scarType === 'midline';
+            document.getElementById('auscultation-sound-desc').innerText = "Hover stethoscope over abdomen...";
+            document.getElementById('auscultation-rationale').innerText = `Expected: ${cData.auscultation.desc}`;
 
-            patientGroup.rotation.x = cData.postureFlexed ? 0.15 : 0;
+            const gridLift = cData.distension * 0.95;
+            gridGroup4Q.position.z = gridLift;
+            gridGroup9R.position.z = gridLift;
 
-            const posAttr = torsoGeo.attributes.position;
-            for (let i = 0; i < posAttr.count; i++) {
-                const yBase = baseTorsoPositions[i * 3 + 1];
-                const zBase = baseTorsoPositions[i * 3 + 2];
-                if (zBase >= -0.35 && zBase <= 0.2 && yBase > 0) {
-                    posAttr.setY(i, yBase + cData.distension * 0.18);
-                }
+            if (appendixMesh) {
+                appendixMesh.material.color.setHex(cKey === 'appendicitis' ? 0xef4444 : 0xf59e0b);
+                appendixMesh.scale.setScalar(cKey === 'appendicitis' ? 1.45 : 1.0);
             }
-            posAttr.needsUpdate = true;
 
             renderDialogueList();
         }
 
         function setLanguage(lang) {
             currentLanguage = lang;
-            document.getElementById('lang-en').className = lang === 'en' ? 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500 text-white' : 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300';
-            document.getElementById('lang-tl').className = lang === 'tl' ? 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500 text-white' : 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-300';
+            document.getElementById('lang-en').className = lang === 'en' ? 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500 text-white' : 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-200';
+            document.getElementById('lang-tl').className = lang === 'tl' ? 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500 text-white' : 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-200';
             renderDialogueList();
         }
 
@@ -563,13 +1861,13 @@
 
             list.forEach((item, idx) => {
                 const btn = document.createElement('button');
-                btn.className = "btn-hover w-full text-left p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-[11px] text-slate-200 flex items-center justify-between";
+                btn.className = "btn-hover w-full text-left p-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-[11px] text-slate-100 flex items-center justify-between";
                 btn.innerHTML = `<span>${idx + 1}. "${item.q}"</span><i class="fa-solid fa-play text-blue-400 text-[10px]"></i>`;
                 btn.onclick = () => askQuestion(item.q, item.a);
                 btnContainer.appendChild(btn);
             });
 
-            document.getElementById('chat-history-log').innerHTML = `<p class="text-[10px] text-slate-400 italic">Tap a question above to start history taking...</p>`;
+            document.getElementById('chat-history-log').innerHTML = `<p class="text-[10px] text-slate-300 italic">Tap a question above to start history taking...</p>`;
         }
 
         function askQuestion(q, a) {
@@ -586,7 +1884,7 @@
             currentTool = mode;
             ['history', 'inspect', 'auscultate', 'palpate', 'percuss', 'pocus'].forEach(m => {
                 const btn = document.getElementById(`tool-${m}`);
-                if (btn) btn.className = m === mode ? 'segmented-item active px-3 py-1 text-[11px] font-semibold' : 'segmented-item px-3 py-1 text-[11px] font-semibold text-slate-300';
+                if (btn) btn.className = m === mode ? 'segmented-item active px-3 py-1 text-[11px] font-semibold' : 'segmented-item px-3 py-1 text-[11px] font-semibold text-slate-200';
             });
 
             document.getElementById('panel-consult').classList.toggle('hidden', mode !== 'history');
@@ -604,24 +1902,142 @@
             document.getElementById('val-palp-depth').innerText = labels[palpationDepth];
         }
 
-        function triggerAudioAuscultation() {
+        // =========================================================================
+        // 5. PROCEDURAL AUSCULTATION & PERCUSSION WEB AUDIO SYNTHESIZERS
+        // =========================================================================
+        function ensureAudioContext() {
             if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            if (synthOsc) synthOsc.stop();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        }
 
+        function triggerAudioAuscultation() {
             const cData = caseDatabase[currentCase].auscultation;
             document.getElementById('auscultation-sound-desc').innerText = cData.desc;
+            document.getElementById('auscultation-rationale').innerText = cData.rationale;
 
-            if (cData.rate === 0) return;
+            if (cData.type === 'silent') return;
 
-            synthOsc = audioCtx.createOscillator();
+            const minInterval = cData.type === 'hyperactive' ? 240 : cData.type === 'tinkling' ? 320 : cData.type === 'hypoactive' ? 1400 : 550;
+            const nowMs = performance.now();
+            if (nowMs - lastAuscultationTime < minInterval) return;
+            lastAuscultationTime = nowMs;
+
+            ensureAudioContext();
+            const now = audioCtx.currentTime;
+
+            if (cData.type === 'tinkling') {
+                const pings = 2 + Math.floor(Math.random() * 3);
+                for (let p = 0; p < pings; p++) {
+                    const t0 = now + p * 0.065;
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    const freq = 1550 + Math.random() * 850;
+                    osc.frequency.setValueAtTime(freq, t0);
+                    osc.frequency.exponentialRampToValueAtTime(freq * 0.82, t0 + 0.075);
+                    gain.gain.setValueAtTime(0.11, t0);
+                    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.08);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(t0);
+                    osc.stop(t0 + 0.08);
+                }
+            } else if (cData.type === 'hyperactive') {
+                for (let p = 0; p < 3; p++) {
+                    const t0 = now + p * 0.07;
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'triangle';
+                    const fStart = 320 + Math.random() * 280;
+                    osc.frequency.setValueAtTime(fStart, t0);
+                    osc.frequency.exponentialRampToValueAtTime(fStart * 1.45, t0 + 0.08);
+                    gain.gain.setValueAtTime(0.14, t0);
+                    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.09);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(t0);
+                    osc.stop(t0 + 0.09);
+                }
+            } else if (cData.type === 'hypoactive') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(190, now);
+                osc.frequency.exponentialRampToValueAtTime(140, now + 0.12);
+                gain.gain.setValueAtTime(0.09, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.13);
+            } else {
+                const isBorborygmi = Math.random() > 0.68;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                if (isBorborygmi) {
+                    osc.type = 'sawtooth';
+                    const filter = audioCtx.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(190, now);
+                    osc.frequency.setValueAtTime(95, now);
+                    osc.frequency.linearRampToValueAtTime(135, now + 0.22);
+                    osc.frequency.linearRampToValueAtTime(82, now + 0.42);
+                    gain.gain.setValueAtTime(0.16, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.44);
+                    osc.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.44);
+                } else {
+                    osc.type = 'sine';
+                    const f0 = 240 + Math.random() * 140;
+                    osc.frequency.setValueAtTime(f0, now);
+                    osc.frequency.exponentialRampToValueAtTime(f0 * 1.35, now + 0.14);
+                    gain.gain.setValueAtTime(0.12, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.16);
+                }
+            }
+        }
+
+        function playPercussionNote(noteLabel) {
+            ensureAudioContext();
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
             const gain = audioCtx.createGain();
-            synthOsc.type = cData.type === 'tinkling' ? 'sine' : 'triangle';
-            synthOsc.frequency.setValueAtTime(cData.pitch, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            synthOsc.connect(gain);
+
+            if (noteLabel.includes("Resonant")) {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(155, now);
+                osc.frequency.exponentialRampToValueAtTime(115, now + 0.18);
+                gain.gain.setValueAtTime(0.28, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
+                osc.start(now);
+                osc.stop(now + 0.19);
+            } else if (noteLabel.includes("Dull")) {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(245, now);
+                osc.frequency.exponentialRampToValueAtTime(180, now + 0.085);
+                gain.gain.setValueAtTime(0.22, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+                osc.start(now);
+                osc.stop(now + 0.09);
+            } else {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(390, now);
+                osc.frequency.exponentialRampToValueAtTime(290, now + 0.035);
+                gain.gain.setValueAtTime(0.18, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+                osc.start(now);
+                osc.stop(now + 0.04);
+            }
+
+            osc.connect(gain);
             gain.connect(audioCtx.destination);
-            synthOsc.start();
-            synthOsc.stop(audioCtx.currentTime + 0.3);
         }
 
         function setupEventListeners() {
@@ -631,23 +2047,45 @@
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
 
+            // Support drag-and-drop image onto viewport to set background
+            window.addEventListener('dragover', (e) => e.preventDefault());
+            window.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const file = e.dataTransfer.files && e.dataTransfer.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        document.body.style.backgroundImage = `url('${ev.target.result}')`;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
             window.addEventListener('pointermove', (e) => {
                 mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
                 mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
                 raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObject(torsoMesh);
+                const intersects = raycaster.intersectObject(patient.torsoMesh);
 
                 if (intersects.length > 0) {
                     const point = intersects[0].point;
-                    cursorMarker.position.copy(point);
-                    cursorMarker.position.y += 0.02;
-                    cursorMarker.visible = true;
+                    const localPt = patient.root.worldToLocal(point.clone());
 
-                    if (currentTool === 'auscultate') {
-                        stethoscopeMesh.visible = true;
-                        stethoscopeMesh.position.copy(point);
-                        triggerAudioAuscultation();
+                    if (localPt.y >= 0.98 && localPt.y <= 1.33) {
+                        cursorMarker.position.copy(point);
+                        cursorMarker.position.y += 0.008;
+                        cursorMarker.visible = true;
+
+                        if (currentTool === 'auscultate') {
+                            stethoscopeMesh.visible = true;
+                            stethoscopeMesh.position.copy(point);
+                            stethoscopeMesh.position.y += 0.007;
+                            triggerAudioAuscultation();
+                        } else {
+                            stethoscopeMesh.visible = false;
+                        }
                     } else {
+                        cursorMarker.visible = false;
                         stethoscopeMesh.visible = false;
                     }
                 } else {
@@ -659,37 +2097,50 @@
             window.addEventListener('click', (e) => {
                 if (e.target.closest('.vision-card') || e.target.closest('.vision-pill') || e.target.closest('header')) return;
                 raycaster.setFromCamera(mouse, camera);
-                const intersects = raycaster.intersectObject(torsoMesh);
+                const intersects = raycaster.intersectObject(patient.torsoMesh);
 
                 if (intersects.length > 0) {
-                    const hitZ = intersects[0].point.z;
-                    const hitX = intersects[0].point.x;
-                    let quad = 'RUQ';
-                    if (hitX < 0 && hitZ > 0) quad = 'RUQ';
-                    else if (hitX >= 0 && hitZ > 0) quad = 'LUQ';
-                    else if (hitX < 0 && hitZ <= 0) quad = 'RLQ';
-                    else quad = 'LLQ';
+                    const localPt = patient.root.worldToLocal(intersects[0].point.clone());
+                    if (localPt.y < 0.98 || localPt.y > 1.33) return;
+
+                    const isRight = localPt.x < 0;
+                    const isUpper = localPt.y > 1.15;
+                    const quad = isRight ? (isUpper ? 'RUQ' : 'RLQ') : (isUpper ? 'LUQ' : 'LLQ');
 
                     if (currentTool === 'percuss') {
-                        document.getElementById('percussion-desc').innerText = `${quad}: ${caseDatabase[currentCase].percussion[quad]}`;
+                        osceTracker.percussed = true;
+                        const isBonyEdge = (localPt.y > 1.295 && Math.abs(localPt.x) > 0.04) || (localPt.y < 1.005 && Math.abs(localPt.x) > 0.105);
+                        const percData = isBonyEdge
+                            ? { note: "Flat sound", detail: "Dense bone/muscle boundary (costal margin / iliac crest)" }
+                            : caseDatabase[currentCase].percussion[quad];
+
+                        document.getElementById('percussion-desc').innerText = `${quad}: ${percData.note}`;
+                        document.getElementById('percussion-rationale').innerText = percData.detail;
+                        playPercussionNote(percData.note);
                     } else if (currentTool === 'palpate') {
                         if (palpationDepth <= 2) osceTracker.lightPalpated = true;
                         else osceTracker.deepPalpated = true;
 
+                        palpPoint = localPt;
+                        palpIndent = 0.008 + palpationDepth * 0.004;
+
                         let painVal = caseDatabase[currentCase].palpationPain[quad];
                         if (palpationDepth >= 3) painVal = Math.min(100, painVal + 20);
+                        targetPain = painVal;
 
-                        eyebrowLeft.rotation.z = (painVal / 100) * 0.5;
-                        eyebrowRight.rotation.z = -(painVal / 100) * 0.5;
-
-                        document.getElementById('grimace-level').innerText = `${painVal}% Pain`;
+                        document.getElementById('grimace-level').innerText = `${painVal}% Pain (${quad})`;
                         document.getElementById('pain-bar').style.width = `${painVal}%`;
+                        document.getElementById('pain-bar').className = `h-full transition-all duration-300 ${painVal > 60 ? 'bg-rose-500' : painVal > 25 ? 'bg-amber-400' : 'bg-emerald-400'}`;
 
                         setTimeout(() => {
-                            eyebrowLeft.rotation.z = 0; eyebrowRight.rotation.z = 0;
+                            palpIndent = 0;
+                            targetPain = 0;
                             document.getElementById('grimace-level').innerText = '0% (Calm)';
                             document.getElementById('pain-bar').style.width = '0%';
+                            document.getElementById('pain-bar').className = 'bg-emerald-400 h-full w-0 transition-all duration-300';
                         }, 1500);
+                    } else if (currentTool === 'pocus') {
+                        document.getElementById('pocus-finding').innerText = `${quad}: ${caseDatabase[currentCase].pocus}`;
                     }
                 }
             });
@@ -697,26 +2148,56 @@
 
         function performSpecialSign(sign) {
             osceTracker.specialManeuvers = true;
-            if (sign === 'mcburney') alert("McBurney's Point Test: Palpation 2/3 distance from ASIS to umbilicus.");
-            if (sign === 'blumberg') alert("Blumberg's Rebound Sign: Sudden release of deep RLQ pressure causes sharp pain in Appendicitis.");
-            if (sign === 'rovsing') alert("Rovsing's Sign: Palpation in LLQ elicits pain in RLQ.");
-            if (sign === 'psoas') alert("Psoas / Obturator Sign: Passive hip extension / internal rotation causes RLQ pain.");
+            const isAppendicitis = currentCase === 'appendicitis';
+            if (isAppendicitis) {
+                targetPain = 95;
+                document.getElementById('grimace-level').innerText = `95% Rebound/Sign Positive!`;
+                document.getElementById('pain-bar').style.width = `95%`;
+                document.getElementById('pain-bar').className = 'bg-rose-500 h-full transition-all duration-300';
+                setTimeout(() => {
+                    targetPain = 0;
+                    document.getElementById('grimace-level').innerText = '0% (Calm)';
+                    document.getElementById('pain-bar').style.width = '0%';
+                }, 1800);
+            }
+
+            if (sign === 'mcburney') alert("McBurney's Point Test: Palpation 2/3 distance from ASIS to umbilicus." + (isAppendicitis ? " -> POSITIVE (Severe localized RLQ tenderness)." : " -> Negative."));
+            if (sign === 'blumberg') alert("Blumberg's Rebound Sign: Sudden release of deep RLQ pressure." + (isAppendicitis ? " -> POSITIVE (Sharp rebound peritoneal pain)." : " -> Negative."));
+            if (sign === 'rovsing') alert("Rovsing's Sign: Deep palpation in LLQ." + (isAppendicitis ? " -> POSITIVE (Referred pain elicited in RLQ)." : " -> Negative."));
+            if (sign === 'psoas') alert("Psoas / Obturator Sign: Passive hip extension & internal rotation." + (isAppendicitis ? " -> POSITIVE (Retrocecal/pelvic appendix irritation)." : " -> Negative."));
         }
 
         function setAbdominalGridMode(m) {
             gridGroup4Q.visible = m === '4q';
             gridGroup9R.visible = m === '9r';
+            ['off', '4q', '9r'].forEach(id => {
+                const btn = document.getElementById(`btn-grid-${id}`);
+                if (btn) {
+                    btn.className = (id === m)
+                        ? 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/20 text-white'
+                        : 'btn-hover px-2 py-0.5 rounded-full text-[11px] font-medium text-slate-200';
+                }
+            });
         }
 
         function toggleXRayLayer() {
             xrayActive = !xrayActive;
             organGroup.visible = xrayActive;
-            document.getElementById('btn-xray-toggle').innerText = xrayActive ? 'ON' : 'OFF';
+            patient.torsoMat.transparent = xrayActive;
+            patient.torsoMat.opacity = xrayActive ? 0.34 : 1.0;
+            patient.torsoMat.needsUpdate = true;
+
+            const btn = document.getElementById('btn-xray-toggle');
+            btn.innerText = xrayActive ? 'ON' : 'OFF';
+            btn.className = xrayActive
+                ? 'btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-cyan-400/50 bg-cyan-500/20 text-cyan-300'
+                : 'btn-hover px-3 py-1 rounded-full text-xs font-semibold border border-white/20 bg-white/10 text-slate-200';
         }
 
         function recenterCamera() {
-            camera.position.set(0, 1.3, 1.8);
-            orbitControls.target.set(0, 0.2, 0.1);
+            // Calibrated 2.24m side-of-bed perspective: head rests on left blue pillow, abdomen on white sheet, legs on right
+            camera.position.set(-2.06, 0.96, 0.14);
+            orbitControls.target.set(0.0, 0.22, -0.04);
             orbitControls.update();
         }
 
@@ -745,10 +2226,47 @@
             }
         }
 
+        function updatePocusCanvas() {
+            if (currentTool !== 'pocus') return;
+            const canvas = document.getElementById('pocus-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width, h = canvas.height;
+            pocusPhase += 0.06;
+
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.strokeStyle = 'rgba(34, 211, 238, 0.25)';
+            ctx.lineWidth = 1;
+            for (let a = -0.45; a <= 0.45; a += 0.15) {
+                ctx.beginPath();
+                ctx.moveTo(w / 2, 6);
+                ctx.lineTo(w / 2 + Math.sin(a) * h * 1.1, h);
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            const amp = currentCase === 'ileus' ? 3 : currentCase === 'gastroenteritis' ? 22 : 12;
+            for (let x = 25; x < w - 25; x++) {
+                const y = h * 0.55 + Math.sin(x * 0.05 + pocusPhase) * amp * Math.sin((x / w) * Math.PI);
+                if (x === 25) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+
         function animate() {
-            requestAnimationFrame(animate);
-            orbitControls.update();
-            renderer.render(scene, camera);
+            renderer.setAnimationLoop(() => {
+                const t = clock.getElapsedTime();
+                currentPain = THREE.MathUtils.lerp(currentPain, targetPain, 0.12);
+                patient.update(t, caseDatabase[currentCase], palpPoint, palpIndent, currentPain);
+                updatePocusCanvas();
+                orbitControls.update();
+                renderer.render(scene, camera);
+            });
         }
     </script>
 </body>
